@@ -49,10 +49,9 @@ const TIKTOK_REFERER_RULE = {
   priority: 1,
   action: {
     type: "modifyHeaders",
-    requestHeaders: [
-      { header: "referer", operation: "set", value: "https://www.tiktok.com/" },
-      { header: "origin", operation: "set", value: "https://www.tiktok.com" },
-    ],
+    // Referer only. Do NOT set Origin: adding it makes TikTok's CDN treat the
+    // download as a cross-origin request and reject it with an empty JSON body.
+    requestHeaders: [{ header: "referer", operation: "set", value: "https://www.tiktok.com/" }],
   },
   condition: {
     requestDomains: [
