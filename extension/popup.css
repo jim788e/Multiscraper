@@ -1,0 +1,40 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 13px/1.45 -apple-system, Segoe UI, Roboto, sans-serif;
+  color: #1a1a1a;
+  background: #fff;
+}
+.wrap { width: 320px; padding: 14px 16px 16px; }
+h1 { font-size: 16px; margin: 0 0 2px; }
+.platform { font-size: 12px; color: #666; margin-bottom: 12px; text-transform: capitalize; }
+.platform.ok { color: #0a7d33; font-weight: 600; }
+.platform.bad { color: #b00020; }
+.field { display: block; margin-bottom: 10px; }
+.field span { display: block; font-size: 11px; color: #555; margin-bottom: 3px; }
+.field em { color: #999; font-style: normal; }
+input {
+  width: 100%; padding: 7px 9px; border: 1px solid #d0d0d0; border-radius: 7px;
+  font-size: 13px;
+}
+input:focus { outline: none; border-color: #7a5af8; }
+.row { display: flex; gap: 8px; margin: 8px 0; }
+button {
+  flex: 1; padding: 8px 10px; border-radius: 7px; border: 1px solid transparent;
+  font-size: 13px; cursor: pointer;
+}
+button.full { width: 100%; flex: none; margin-top: 6px; }
+.primary { background: #7a5af8; color: #fff; }
+.primary:hover { background: #6845f0; }
+.ghost { background: #f2f2f4; color: #222; border-color: #e2e2e6; }
+.ghost:hover { background: #e8e8ec; }
+button:disabled { opacity: 0.5; cursor: default; }
+.status { font-size: 12px; min-height: 16px; margin: 6px 0; }
+.status.err { color: #b00020; }
+.progress { height: 6px; background: #eee; border-radius: 4px; overflow: hidden; margin: 6px 0; }
+.progress #bar { height: 100%; width: 0%; background: #7a5af8; transition: width .2s; }
+.results { border-top: 1px solid #eee; margin-top: 12px; padding-top: 12px; }
+.summary { font-size: 12px; margin-bottom: 8px; }
+.summary b { font-size: 15px; }
+.note { font-size: 10.5px; color: #999; margin: 12px 0 0; }
+.hidden { display: none; }

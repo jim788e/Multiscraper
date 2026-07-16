@@ -1,0 +1,8 @@
+# Scraped profile exports (data, not code) — keep personal/scraped data out of git
+/export_*.json
+/*_20*T*.json
+
+# Node / editor cruft
+node_modules/
+.DS_Store
+Thumbs.db

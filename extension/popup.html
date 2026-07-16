@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Multiscraper</h1>
+      <div id="platform" class="platform">Detecting…</div>
+
+      <label class="field">
+        <span>Username</span>
+        <input id="username" type="text" placeholder="e.g. afesouspritzeria" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>Max posts <em>(0 = all)</em></span>
+        <input id="maxPosts" type="number" min="0" value="0" />
+      </label>
+
+      <div class="row">
+        <button id="scrape" class="primary">Scrape profile</button>
+        <button id="stop" class="ghost" disabled>Stop</button>
+      </div>
+
+      <div id="status" class="status"></div>
+      <div id="progress" class="progress hidden"><div id="bar"></div></div>
+
+      <div id="results" class="results hidden">
+        <div id="summary" class="summary"></div>
+        <label class="field">
+          <span>Save to folder <em>(inside Downloads)</em></span>
+          <input id="folder" type="text" placeholder="multiscraper/username" autocomplete="off" />
+        </label>
+        <div class="row">
+          <button id="json" class="ghost">Export JSON</button>
+          <button id="csv" class="ghost">Export CSV</button>
+        </div>
+        <button id="media" class="ghost full">Download media files</button>
+        <div id="mediaProgress" class="progress hidden"><div id="mediaBar"></div></div>
+        <div id="mediaStatus" class="status"></div>
+        <button id="retry" class="ghost full hidden">Retry failed downloads</button>
+      </div>
+
+      <p class="note">
+        Runs on the profile tab using your own logged-in session. Only scrape
+        profiles you're allowed to view. Respect the platform's Terms and others' rights.
+      </p>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
