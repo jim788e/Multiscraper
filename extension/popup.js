@@ -198,7 +198,8 @@ async function runDownload(files) {
   $("mediaBar").style.width = "0%";
   setMediaStatus("Saving 0 / " + total + "…");
 
-  const resp = await chrome.runtime.sendMessage({ type: "downloadMedia", folder, files });
+  const platform = lastResult ? lastResult.platform : null;
+  const resp = await chrome.runtime.sendMessage({ type: "downloadMedia", folder, files, platform });
   $("media").disabled = false;
   $("retry").disabled = false;
   if (resp && resp.ok) {

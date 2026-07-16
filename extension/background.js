@@ -39,10 +39,50 @@ async function downloadOne(file, folder) {
   });
 }
 
+// TikTok's video servers reject download requests that lack a tiktok.com
+// referer, returning an HTML error page instead of the video. This rule adds
+// the referer/origin on requests to TikTok media hosts; it's toggled on only
+// while a TikTok batch downloads, so it never touches normal browsing.
+const TIKTOK_REFERER_RULE_ID = 9001;
+const TIKTOK_REFERER_RULE = {
+  id: TIKTOK_REFERER_RULE_ID,
+  priority: 1,
+  action: {
+    type: "modifyHeaders",
+    requestHeaders: [
+      { header: "referer", operation: "set", value: "https://www.tiktok.com/" },
+      { header: "origin", operation: "set", value: "https://www.tiktok.com" },
+    ],
+  },
+  condition: {
+    requestDomains: [
+      "tiktok.com",
+      "tiktokcdn.com",
+      "tiktokcdn-us.com",
+      "tiktokcdn-eu.com",
+      "tiktokv.com",
+      "byteoversea.com",
+      "muscdn.com",
+    ],
+    resourceTypes: ["other", "media", "xmlhttprequest"],
+  },
+};
+async function setTikTokReferer(on) {
+  try {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [TIKTOK_REFERER_RULE_ID],
+      addRules: on ? [TIKTOK_REFERER_RULE] : [],
+    });
+  } catch (e) {
+    console.warn("[Multiscraper] could not update TikTok referer rule", e);
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "downloadMedia") {
     const files = msg.files || [];
     const folder = sanitizeFolder(msg.folder);
+    const isTikTok = msg.platform === "tiktok";
     const total = files.length;
     let started = 0,
       ok = 0,
@@ -72,6 +112,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (done || started !== total || pending.size !== 0) return;
       done = true;
       chrome.downloads.onChanged.removeListener(onChanged);
+      if (isTikTok) setTikTokReferer(false);
       chrome.storage.local.set({
         lastDownload: { ok, failed: fail, failedFiles, folder, total, at: new Date().toISOString() },
         mediaLive: { done: ok + fail, ok, fail, total, folder, running: false },
@@ -108,6 +149,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.downloads.onChanged.addListener(onChanged);
 
     (async () => {
+      if (isTikTok) await setTikTokReferer(true); // add referer before any request fires
       for (let i = 0; i < files.length; i++) {
         const r = await downloadOne(files[i], folder);
         started++;
