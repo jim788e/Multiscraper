@@ -12,16 +12,23 @@
 
   function mediaList(it) {
     const out = [];
-    if (it.video && (it.video.playAddr || it.video.downloadAddr)) {
+    const isPhoto = !!(it.imagePost && Array.isArray(it.imagePost.images) && it.imagePost.images.length);
+
+    if (!isPhoto && it.video && (it.video.playAddr || it.video.downloadAddr)) {
       out.push({ url: it.video.downloadAddr || it.video.playAddr, kind: "video" });
     }
-    if (it.imagePost && Array.isArray(it.imagePost.images)) {
+    if (isPhoto) {
       for (const img of it.imagePost.images) {
         const url = img.imageURL && img.imageURL.urlList && img.imageURL.urlList[0];
         if (url) out.push({ url, kind: "image" });
       }
     }
-    if (!out.length && it.video && it.video.cover) out.push({ url: it.video.cover, kind: "image" });
+    // Always keep the cover for video posts: it downloads reliably (normal image
+    // CDN) even when the video URL is blocked, so a post never yields nothing.
+    if (!isPhoto) {
+      const cover = it.video && (it.video.cover || it.video.originCover);
+      if (cover) out.push({ url: cover, kind: "image" });
+    }
     return out;
   }
 
