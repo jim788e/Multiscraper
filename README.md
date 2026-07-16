@@ -83,6 +83,21 @@ each platform's Terms of Service and applicable law (copyright, privacy/GDPR).
 This tool is for your own data, public research, and archival of content you have
 the right to use.
 
+## Contributing
+
+Going public soon — forks and pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup, project layout, and how to run the
+tests. Quick start:
+
+```bash
+# fork + clone, then:
+npm test              # run the offline test suites (needs only Node, no install)
+# load extension/ as an unpacked extension at chrome://extensions
+```
+
+Please only build features for data a logged-in user can already view, and keep
+`npm test` green.
+
 ## License
 
 MIT © 2026 Dimitrios Misios. See [LICENSE](LICENSE).

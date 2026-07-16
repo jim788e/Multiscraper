@@ -1,0 +1,16 @@
+{
+  "name": "multiscraper",
+  "version": "0.2.1",
+  "description": "Chrome extension to export Instagram/TikTok profile posts (media, captions, real engagement metrics).",
+  "private": true,
+  "license": "MIT",
+  "author": "Dimitrios Misios",
+  "scripts": {
+    "test": "node tests/test-normalizer.js && node tests/test-download.js",
+    "icons": "node tools/generate-icons.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jim788e/Multiscraper.git"
+  }
+}
