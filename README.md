@@ -82,3 +82,7 @@ Only scrape profiles you're permitted to view, and use exported data in line wit
 each platform's Terms of Service and applicable law (copyright, privacy/GDPR).
 This tool is for your own data, public research, and archival of content you have
 the right to use.
+
+## License
+
+MIT © 2026 Dimitrios Misios. See [LICENSE](LICENSE).
