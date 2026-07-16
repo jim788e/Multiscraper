@@ -64,17 +64,13 @@ async function showResults(r) {
     "<b>" + r.count + "</b> posts from @" + (r.profile.username || "profile") +
     " · " + mediaCount + " media files";
 
-  // Prefill the destination: reuse the last folder you picked, else default to
-  // multiscraper/<username>. You can edit it, and the whole batch goes there.
-  const { lastFolder } = await chrome.storage.local.get("lastFolder");
-  $("folder").value = lastFolder || "multiscraper/" + (r.profile.username || "profile");
+  // Always default to the profile currently loaded (not a remembered folder from
+  // a previous, different profile). You can still edit it before downloading.
+  $("folder").value = "multiscraper/" + (r.profile.username || "profile");
 }
 
 function currentFolder() {
-  const v = $("folder").value.trim();
-  const folder = v || "multiscraper/profile";
-  chrome.storage.local.set({ lastFolder: folder }); // remember for next batch
-  return folder;
+  return $("folder").value.trim() || "multiscraper/profile";
 }
 
 $("scrape").addEventListener("click", async () => {
