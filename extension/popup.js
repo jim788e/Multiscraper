@@ -215,6 +215,54 @@ async function runDownload(files) {
   }
 }
 
+// A compact, performance-focused export: only the engagement numbers, a computed
+// total engagement and engagement rate, sorted best-performing first — easy to
+// scan in a spreadsheet to see how posts did.
+function toNumber(v) {
+  if (typeof v === "number") return v;
+  if (typeof v === "string" && /^\d+$/.test(v)) return parseInt(v, 10);
+  return null; // "Not Available" / "Hidden" / "PREMIUM FIELD"
+}
+
+$("stats").addEventListener("click", () => {
+  if (!lastResult) return;
+  const rows = lastResult.rows
+    .map((r) => {
+      const likes = toNumber(r["Post Likes"]);
+      const comments = toNumber(r["Post Comments Count"]);
+      const views = toNumber(r["Post Views"]);
+      const shares = toNumber(r["Post Shares"]);
+      const saves = toNumber(r["Post Saves"]);
+      const engagement = [likes, comments, shares, saves].reduce((a, b) => a + (b || 0), 0);
+      const rate = views && engagement ? (engagement / views) * 100 : null;
+      return {
+        Date: (r["Post Date"] || "").slice(0, 10),
+        Type: r["Post Type"],
+        Caption: (r["Post Text"] || "").replace(/\s+/g, " ").trim().slice(0, 60),
+        Likes: likes != null ? likes : r["Post Likes"],
+        Comments: comments != null ? comments : r["Post Comments Count"],
+        Views: views != null ? views : r["Post Views"],
+        Shares: shares != null ? shares : r["Post Shares"],
+        Saves: saves != null ? saves : r["Post Saves"],
+        Engagement: engagement,
+        "Engagement %": rate != null ? rate.toFixed(2) : "",
+        URL: r["Post URL"],
+        _sort: views != null ? views : likes != null ? likes : 0,
+      };
+    })
+    .sort((a, b) => b._sort - a._sort); // best-performing first
+
+  const keys = ["Date", "Type", "Caption", "Likes", "Comments", "Views", "Shares", "Saves", "Engagement", "Engagement %", "URL"];
+  const esc = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [keys.map(esc).join(",")];
+  for (const row of rows) lines.push(keys.map((k) => esc(row[k])).join(","));
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  download((lastResult.profile.username || "profile") + "_stats_" + stamp + ".csv", lines.join("\n"), "text/csv");
+});
+
 $("media").addEventListener("click", () => {
   if (!lastResult || !lastResult.media || !lastResult.media.length) {
     setMediaStatus("No media to download.");
