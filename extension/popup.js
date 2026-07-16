@@ -252,13 +252,57 @@ $("stats").addEventListener("click", () => {
     })
     .sort((a, b) => b._sort - a._sort); // best-performing first
 
-  const keys = ["Date", "Type", "Caption", "Likes", "Comments", "Views", "Shares", "Saves", "Engagement", "Engagement %", "URL"];
   const esc = (v) => {
     const s = v == null ? "" : String(v);
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-  const lines = [keys.map(esc).join(",")];
+
+  // Totals & averages. Each average is over only the posts that actually report
+  // that metric, so hidden likes or missing views don't drag the numbers to 0.
+  const agg = { Likes: [0, 0], Comments: [0, 0], Views: [0, 0], Shares: [0, 0], Saves: [0, 0], Engagement: [0, 0], Rate: [0, 0] };
+  const add = (key, val) => {
+    if (val != null) {
+      agg[key][0] += val;
+      agg[key][1] += 1;
+    }
+  };
+  lastResult.rows.forEach((r) => {
+    const l = toNumber(r["Post Likes"]), c = toNumber(r["Post Comments Count"]), v = toNumber(r["Post Views"]);
+    const s = toNumber(r["Post Shares"]), sv = toNumber(r["Post Saves"]);
+    add("Likes", l); add("Comments", c); add("Views", v); add("Shares", s); add("Saves", sv);
+    const e = [l, c, s, sv].reduce((a, b) => a + (b || 0), 0);
+    add("Engagement", e);
+    if (v && e) add("Rate", (e / v) * 100);
+  });
+  const total = (k) => (agg[k][1] ? agg[k][0] : "");
+  const avg = (k, dp = 0) => (agg[k][1] ? (agg[k][0] / agg[k][1]).toFixed(dp) : "");
+  const best = rows[0];
+  const bestLabel = best ? (best.Caption || best.Type || best.Date) + " — " + best.URL : "";
+
+  const summary = [
+    ["Metric", "Value"],
+    ["Posts", lastResult.rows.length],
+    ["Total Likes", total("Likes")],
+    ["Total Comments", total("Comments")],
+    ["Total Views", total("Views")],
+    ["Total Shares", total("Shares")],
+    ["Total Saves", total("Saves")],
+    ["Total Engagement", total("Engagement")],
+    ["Avg Likes", avg("Likes")],
+    ["Avg Comments", avg("Comments")],
+    ["Avg Views", avg("Views")],
+    ["Avg Engagement", avg("Engagement")],
+    ["Avg Engagement %", avg("Rate", 2)],
+    ["Top post", bestLabel],
+  ];
+
+  const keys = ["Date", "Type", "Caption", "Likes", "Comments", "Views", "Shares", "Saves", "Engagement", "Engagement %", "URL"];
+  const lines = [];
+  for (const row of summary) lines.push(row.map(esc).join(","));
+  lines.push(""); // blank separator between summary and the per-post table
+  lines.push(keys.map(esc).join(","));
   for (const row of rows) lines.push(keys.map((k) => esc(row[k])).join(","));
+
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   download((lastResult.profile.username || "profile") + "_stats_" + stamp + ".csv", lines.join("\n"), "text/csv");
 });
