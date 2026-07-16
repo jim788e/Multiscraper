@@ -77,6 +77,20 @@ async function setTikTokReferer(on) {
   }
 }
 
+// Save a single file the content script prepared (a data: URL for TikTok videos
+// fetched in the page, or a direct URL for images) into the chosen folder.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type !== "saveDownload") return;
+  chrome.downloads.download(
+    { url: msg.url, filename: sanitizeFolder(msg.filename.split("/").slice(0, -1).join("/")) + "/" + msg.filename.split("/").pop(), saveAs: false, conflictAction: "uniquify" },
+    (id) => {
+      if (chrome.runtime.lastError) sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+      else sendResponse({ ok: true, id });
+    }
+  );
+  return true; // async
+});
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "downloadMedia") {
     const files = msg.files || [];

@@ -88,4 +88,59 @@
 
   // Prime the interceptor on TikTok so early item_list responses aren't missed.
   if (/tiktok\.com$/.test(location.hostname.replace(/^www\./, ""))) MS.ensureInterceptor();
+
+  // TikTok media download, driven from the page context. TikTok video URLs are
+  // signed and gated by the tt_chain_token session cookie, which only a request
+  // from inside tiktok.com carries — so we fetch the bytes here (same as the
+  // player, which is why it produces a blob:) and hand them to the background to
+  // save into the chosen folder. Images use the direct URL (no CORS to read).
+  const sane = (s) => String(s || "x").replace(/[^a-z0-9._@-]+/gi, "_").slice(0, 60);
+  function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = () => reject(new Error("read failed"));
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg.type !== "tiktokDownload") return;
+    const files = msg.files || [];
+    const total = files.length;
+    (async () => {
+      let ok = 0,
+        fail = 0;
+      const failedFiles = [];
+      for (const f of files) {
+        try {
+          let saveUrl = f.url;
+          if (f.kind === "video") {
+            const res = await fetch(f.url, { credentials: "include" });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const blob = await res.blob();
+            if (!blob.size) throw new Error("empty response");
+            saveUrl = await blobToDataURL(blob); // data: URL is JSON-safe for messaging
+          }
+          const ext = f.kind === "video" ? "mp4" : "jpg";
+          const filename = msg.folder + "/" + sane(f.shortcode) + "_" + f.index + "." + ext;
+          const r = await chrome.runtime.sendMessage({ type: "saveDownload", url: saveUrl, filename });
+          if (r && r.ok) ok++;
+          else {
+            fail++;
+            failedFiles.push(f);
+          }
+        } catch (e) {
+          fail++;
+          failedFiles.push(f);
+        }
+        chrome.runtime.sendMessage({ type: "mediaProgress", done: ok + fail, ok, fail, total }).catch(() => {});
+      }
+      chrome.storage.local.set({
+        lastDownload: { ok, failed: fail, failedFiles, folder: msg.folder, total, at: new Date().toISOString() },
+      });
+      sendResponse({ ok: true, downloaded: ok, failed: fail, failedFiles });
+    })();
+    return true; // async
+  });
 })();

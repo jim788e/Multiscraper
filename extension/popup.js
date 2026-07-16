@@ -199,7 +199,13 @@ async function runDownload(files) {
   setMediaStatus("Saving 0 / " + total + "…");
 
   const platform = lastResult ? lastResult.platform : null;
-  const resp = await chrome.runtime.sendMessage({ type: "downloadMedia", folder, files, platform });
+  // TikTok videos must be fetched from inside the tiktok.com tab (session token),
+  // so that platform's downloads are driven by the content script; Instagram uses
+  // the background download engine directly.
+  const resp =
+    platform === "tiktok"
+      ? await chrome.tabs.sendMessage(activeTabId, { type: "tiktokDownload", folder, files })
+      : await chrome.runtime.sendMessage({ type: "downloadMedia", folder, files, platform });
   $("media").disabled = false;
   $("retry").disabled = false;
   if (resp && resp.ok) {
