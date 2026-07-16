@@ -24,6 +24,27 @@ auto-scrolling** the profile.
 3. Click **Load unpacked** and select the `extension/` folder in this repo.
 4. Pin the "Multiscraper" extension for easy access.
 
+## Chrome download settings (do this once)
+
+For silent, no-prompt downloads that land in the right place, adjust two settings
+at `chrome://settings/downloads`:
+
+1. **Location** → set to where you want files, e.g. `C:\Users\<you>\Downloads`.
+   The extension saves into a `multiscraper/<profile>` subfolder *of this
+   location*. (It cannot save outside your Downloads folder — a Chrome rule.)
+2. **Turn OFF** "Ask where to save each file before downloading."
+   If this is **on**, Chrome pops a **Save As** dialog for *every* file and
+   anchors the path to the last folder you picked — so you'll see repeated
+   prompts and files landing in an unexpected folder (e.g. a stray `mooz-cool/`).
+   The extension asks Chrome to save silently, but this global setting overrides
+   that, so it must be off.
+
+**If the toggle is greyed out or keeps turning itself back on**, a policy is
+forcing it (common on managed/work machines or with some bundled software).
+Check `chrome://policy` for `PromptForDownloadLocation` (forces the prompt) or
+`DownloadDirectory` (forces the folder) — those must be removed by whoever
+manages the policy before the setting will stick.
+
 ## Use
 
 1. Log in to Instagram (or TikTok) in Chrome.
