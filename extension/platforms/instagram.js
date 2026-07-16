@@ -121,6 +121,10 @@
         ? item.like_count
         : "Not Available",
       "Post Comments Count": item.comment_count != null ? item.comment_count : "Not Available",
+      // IG reports view/play counts on videos & reels; shares/saves aren't exposed.
+      "Post Views": item.play_count != null ? item.play_count : item.view_count != null ? item.view_count : "Not Available",
+      "Post Shares": "Not Available",
+      "Post Saves": "Not Available",
       "Post URL": item.code ? "https://www.instagram.com/p/" + item.code + "/" : "",
       "Post Date": item.taken_at ? new Date(item.taken_at * 1000).toISOString() : "",
       "Is Comments Disabled": item.comments_disabled ? "Yes" : "No",
