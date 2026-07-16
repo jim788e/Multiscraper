@@ -31,11 +31,12 @@ async function init() {
     return;
   }
 
+  let detected = { platform: null, username: null };
   try {
-    const info = await chrome.tabs.sendMessage(activeTabId, { type: "detect" });
-    $("platform").textContent = info.platform + (info.username ? " · @" + info.username : "");
+    detected = await chrome.tabs.sendMessage(activeTabId, { type: "detect" });
+    $("platform").textContent = detected.platform + (detected.username ? " · @" + detected.username : "");
     $("platform").className = "platform ok";
-    if (info.username) $("username").value = info.username;
+    if (detected.username) $("username").value = detected.username;
   } catch (_) {
     // content script not ready (e.g. tab loaded before extension installed)
     $("platform").textContent = host.replace(".com", "");
@@ -43,9 +44,15 @@ async function init() {
     setStatus("Reload the profile tab, then reopen this popup.", true);
   }
 
-  // Restore last result if it matches this profile.
+  // Only restore a saved result if it belongs to the profile in THIS tab —
+  // otherwise the popup would show a previous profile's posts and download folder.
   const { lastResult: stored, lastDownload } = await chrome.storage.local.get(["lastResult", "lastDownload"]);
-  if (stored) {
+  const same =
+    stored &&
+    detected.username &&
+    stored.platform === detected.platform &&
+    (stored.profile.username || "").toLowerCase() === detected.username.toLowerCase();
+  if (same) {
     lastResult = stored;
     await showResults(stored);
     // Surface the outcome of the previous media download (survives popup close),
