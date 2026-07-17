@@ -106,7 +106,7 @@ the right to use.
 
 ## Contributing
 
-Going public soon — forks and pull requests are welcome. See
+Forks and pull requests are welcome. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for setup, project layout, and how to run the
 tests. Quick start:
 
