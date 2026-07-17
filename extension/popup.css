@@ -37,4 +37,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .summary { font-size: 12px; margin-bottom: 8px; }
 .summary b { font-size: 15px; }
 .note { font-size: 10.5px; color: #999; margin: 12px 0 0; }
+.credit { font-size: 10.5px; color: #999; margin: 6px 0 0; text-align: center; }
+.credit a { color: #7a5af8; text-decoration: none; }
+.credit a:hover { text-decoration: underline; }
 .hidden { display: none; }

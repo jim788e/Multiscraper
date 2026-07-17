@@ -38,8 +38,8 @@ const rawVideo = {
   play_count: 9876,
   comments_disabled: false,
   accessibility_caption: null,
-  caption: { text: "αφέsου,\n#afesouskg" },
-  user: { pk: "76199453722", username: "afesouspritzeria", full_name: "AΦESOU", is_verified: false, profile_pic_url: "https://cdn/pp.jpg" },
+  caption: { text: "hello,\n#example" },
+  user: { pk: "76199453722", username: "example_user", full_name: "Example User", is_verified: false, profile_pic_url: "https://cdn/pp.jpg" },
   image_versions2: { candidates: [{ url: "https://cdn/cover_hi.jpg" }, { url: "https://cdn/cover_lo.jpg" }] },
   video_versions: [{ url: "https://cdn/video.mp4" }],
 };
@@ -53,7 +53,7 @@ const rawCarousel = {
   like_count: 0,
   comment_count: 5,
   caption: { text: "coffee" },
-  user: { pk: "76199453722", username: "afesouspritzeria", full_name: "AΦESOU", is_verified: true, profile_pic_url: "https://cdn/pp.jpg" },
+  user: { pk: "76199453722", username: "example_user", full_name: "Example User", is_verified: true, profile_pic_url: "https://cdn/pp.jpg" },
   carousel_media: [
     { image_versions2: { candidates: [{ url: "https://cdn/c1.jpg" }] } },
     { image_versions2: { candidates: [{ url: "https://cdn/c2.jpg" }] }, video_versions: [{ url: "https://cdn/c2.mp4" }] },

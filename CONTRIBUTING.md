@@ -2,7 +2,7 @@
 
 Thanks for your interest! This project is a Manifest V3 Chrome extension that
 exports posts (media, captions, real engagement metrics) from an Instagram or
-TikTok profile you can view. It's going public soon — forks, issues, and pull
+TikTok profile you can view. It's public — forks, issues, and pull
 requests are welcome.
 
 ## Ground rules

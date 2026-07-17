@@ -49,7 +49,7 @@ manages the policy before the setting will stick.
 
 1. Log in to Instagram (or TikTok) in Chrome.
 2. Open the **profile page** you want to export (e.g.
-   `https://www.instagram.com/afesouspritzeria/`).
+   `https://www.instagram.com/some_username/`).
 3. Click the Multiscraper toolbar icon. The username auto-fills from the tab.
 4. Set **Max posts** (`0` = every post) and click **Scrape profile**. Watch the
    live count.
