@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Multiscraper — IG/TikTok Profile Exporter",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Export all posts (images, videos, captions, real likes/comments) from an Instagram or TikTok profile you can view, and download the media.",
   "permissions": ["downloads", "storage", "scripting", "activeTab", "declarativeNetRequest"],
   "host_permissions": [
