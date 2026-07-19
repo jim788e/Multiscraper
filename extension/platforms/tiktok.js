@@ -82,7 +82,7 @@
 
   async function scrape(opts, onProgress, shouldStop) {
     MS.ensureInterceptor();
-    MS.captureBuffer.length = 0;
+    MS.flushBuffer();
 
     const posts = [];
     const seen = new Set();

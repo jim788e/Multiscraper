@@ -120,7 +120,7 @@ Overridden methods check request URLs against the regex `/(\/api\/v1\/feed\/user
 - **`XMLHttpRequest.prototype.send` Override**: Listens for the `load` event, checks internal URLs, and parses responses.
 - **Message Dispatch**:
   ```javascript
-  window.postMessage({ __ms: "capture", url: String(url), body: parsedJSON }, "*");
+  window.postMessage({ __ms: "capture", url: String(url), body: parsedJSON }, window.location.origin);
   ```
 
 ---

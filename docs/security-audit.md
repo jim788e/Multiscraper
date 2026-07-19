@@ -51,6 +51,15 @@ A previously identified XSS risk in the UI popup has been fully patched.
   * The extension uses `chrome.declarativeNetRequest` to rewrite headers for TikTok media servers.
   * *Security Posture*: The referer modification rule (`9001`) is only activated *while* a TikTok download batch is running, and is immediately unregistered (`setTikTokReferer(false)`) upon completion, ensuring normal user browsing remains unaffected.
 
+### 7. Main World Context & Interceptor Script Hardening
+* **Origin-Restricted `postMessage`**:
+  * *Threat*: Using a wildcard target origin `"*"` in `window.postMessage` would allow any iframe or malicious script running on the page to intercept the raw API response payloads.
+  * *Remediation*: The postMessage destination is strictly restricted to `window.location.origin` (the exact domain currently being browsed). Furthermore, the receiving message event listener in [common.js](file:///d:/dev/Multiscraper/extension/common.js) explicitly verifies both `event.source === window` and `event.origin === window.location.origin` to ensure that only messages sent from the active tab's own execution context are processed.
+  * *Memory Leak Protection*: The `MS.captureBuffer` is bounded to a maximum size of 100 elements. Oldest payloads are automatically shifted out of the array if the user is passively browsing without running an active scrape, preventing unbounded heap/memory growth.
+* **XHR Prototype Pollution Mitigation**:
+  * *Threat*: Mutating native `XMLHttpRequest` instances by attaching arbitrary tracking properties (e.g., `this.__msUrl`) can cause instability in modern, complex web applications that freeze network objects or inspect their own keys.
+  * *Remediation*: A private `WeakMap` (`xhrUrlMap`) is utilized in the IIFE scope to map `XMLHttpRequest` instances to their requested URLs. The native XHR instance properties are left entirely unpolluted.
+
 ---
 
 ## Security Verification Checklist
@@ -64,6 +73,8 @@ A previously identified XSS risk in the UI popup has been fully patched.
 | **Secrets** | No hardcoded credentials or private tokens | ✅ PASS |
 | **Supply Chain** | Zero runtime package dependencies | ✅ PASS |
 | **Headers** | Clean header modification lifecycle | ✅ PASS |
+| **Isolation** | Origin-restricted `postMessage` (no wildcard target origin) | ✅ PASS |
+| **Integrity** | `WeakMap`-based XHR URL mapping (no object decoration) | ✅ PASS |
 
 ---
 
@@ -72,3 +83,4 @@ A previously identified XSS risk in the UI popup has been fully patched.
 * **Security Posture Score**: **10/10**
 * **Risk Level**: **Low**
 * **Status**: **CLEAN / SECURE**
+

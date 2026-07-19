@@ -31,11 +31,21 @@
   // Buffer that inject.js (MAIN world) feeds via window.postMessage. Platform
   // adapters read from it when using the scroll-and-capture strategy.
   MS.captureBuffer = [];
-  window.addEventListener("message", (ev) => {
-    if (ev.source !== window) return;
-    const d = ev.data;
-    if (!d || d.__ms !== "capture") return;
-    MS.captureBuffer.push({ url: d.url, body: d.body });
+  MS.flushBuffer = () => {
+    MS.captureBuffer = [];
+  };
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    if (event.origin !== window.location.origin) return;
+    const payload = event.data;
+    if (!payload || payload.__ms !== "capture") return;
+
+    // Limit buffer size to prevent memory leaks during passive browsing
+    if (MS.captureBuffer.length >= 100) {
+      MS.captureBuffer.shift();
+    }
+    MS.captureBuffer.push({ url: payload.url, body: payload.body });
   });
 
   // Inject the MAIN-world network interceptor exactly once.

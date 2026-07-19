@@ -6,17 +6,18 @@
   window.__msPatched = true;
 
   const INTERESTING = /(\/api\/v1\/feed\/user\/|\/graphql\/query|\/api\/post\/item_list|xdt_api__v1__feed)/i;
+  const xhrUrlMap = new WeakMap();
 
-  function forward(url, text) {
+  const forward = (url, text) => {
     try {
       if (!INTERESTING.test(url)) return;
       // Only forward JSON we can parse; ignore everything else quietly.
       const body = JSON.parse(text);
-      window.postMessage({ __ms: "capture", url: String(url), body }, "*");
+      window.postMessage({ __ms: "capture", url: String(url), body }, window.location.origin);
     } catch (_) {
       /* not JSON or not relevant */
     }
-  }
+  };
 
   const origFetch = window.fetch;
   window.fetch = function (...args) {
@@ -34,17 +35,19 @@
   const origOpen = XMLHttpRequest.prototype.open;
   const origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (method, url) {
-    this.__msUrl = url;
+    xhrUrlMap.set(this, url);
     return origOpen.apply(this, arguments);
   };
   XMLHttpRequest.prototype.send = function () {
     this.addEventListener("load", function () {
       try {
-        if (this.__msUrl && INTERESTING.test(this.__msUrl)) {
-          forward(this.__msUrl, this.responseText);
-        }
+        const savedUrl = xhrUrlMap.get(this);
+        if (!savedUrl) return;
+        if (!INTERESTING.test(savedUrl)) return;
+        forward(savedUrl, this.responseText);
       } catch (_) {}
     });
     return origSend.apply(this, arguments);
   };
 })();
+
