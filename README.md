@@ -84,6 +84,16 @@ manages the policy before the setting will stick.
   Use **Download media** to keep the files.
 - **TikTok** relies on auto-scroll capture; keep the tab focused while it runs.
 
+## Documentation
+
+Detailed architectural, usage, and development manuals are available in the `docs/` folder:
+
+*   **[Architecture & Component Design](docs/architecture.md)**: Details extension execution contexts, TikTok/Instagram scraping loops, and the message passing bus (includes Mermaid flow diagrams).
+*   **[API Reference](docs/api-reference.md)**: Internal namespace `window.MS` parameters, `common.js` helper methods, and `PlatformAdapter` specifications.
+*   **[User Guide](docs/user-guide.md)**: Installation, silent downloads Chrome configuration, marketing stats calculations, and CDN link expiration.
+*   **[Developer Guide](docs/developer-guide.md)**: Sandbox vm testing setups, repo structure, and a tutorial for writing new platform adapters.
+*   **[Security Audit](docs/security-audit.md)**: Chrome extension security controls audit, XSS patching, path traversals, and credential security.
+
 ## Files
 
 | File | Role |
