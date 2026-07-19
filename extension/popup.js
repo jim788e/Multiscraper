@@ -1,4 +1,5 @@
 const $ = (id) => document.getElementById(id);
+const escHtml = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 let activeTabId = null;
 let lastResult = null;
 
@@ -68,8 +69,8 @@ async function showResults(r) {
   $("results").classList.remove("hidden");
   const mediaCount = (r.media || []).length;
   $("summary").innerHTML =
-    "<b>" + r.count + "</b> posts from @" + (r.profile.username || "profile") +
-    " · " + mediaCount + " media files";
+    "<b>" + parseInt(r.count, 10) + "</b> posts from @" + escHtml(r.profile.username || "profile") +
+    " · " + parseInt(mediaCount, 10) + " media files";
 
   // Always default to the profile currently loaded (not a remembered folder from
   // a previous, different profile). You can still edit it before downloading.
