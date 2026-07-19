@@ -1,6 +1,6 @@
 {
   "name": "multiscraper",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Chrome extension to export Instagram/TikTok profile posts (media, captions, real engagement metrics).",
   "private": true,
   "license": "MIT",
