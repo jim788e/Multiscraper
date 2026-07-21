@@ -1,8 +1,16 @@
-# Multiscraper — Instagram / TikTok profile exporter
+# Multiscraper — Instagram / TikTok / Google Business exporter
 
 A Chrome extension (Manifest V3) that exports **all** posts from a profile you can
 view — not the 10-post preview a third-party tool gives you — including the real
 like/comment counts, and optionally downloads every image/video.
+
+It also scrapes **Google Business listings**: open a business page (e.g. via a
+`share.google/...` link, a Google Search knowledge panel, or a Google Maps place),
+and export the business info (name, category, rating, address, phone, hours,
+price range, website) plus every user review it can page through — including
+Google's auto-translations of foreign-language reviews — as JSON, CSV, or a
+polished **Markdown report**. Note: Google's web endpoint does not expose owner
+replies to reviews, so those are reported as "Not Available".
 
 ## Why this works where a direct request doesn't
 

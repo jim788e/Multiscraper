@@ -25,8 +25,8 @@ async function init() {
     }
   })();
 
-  if (!/instagram\.com$|tiktok\.com$/.test(host)) {
-    $("platform").textContent = "Open an Instagram or TikTok profile tab";
+  if (!/instagram\.com$|tiktok\.com$|(^|\.)google\.[a-z.]+$/.test(host)) {
+    $("platform").textContent = "Open an Instagram/TikTok profile or a Google business page";
     $("platform").className = "platform bad";
     $("scrape").disabled = true;
     return;
@@ -35,7 +35,8 @@ async function init() {
   let detected = { platform: null, username: null };
   try {
     detected = await chrome.tabs.sendMessage(activeTabId, { type: "detect" });
-    $("platform").textContent = detected.platform + (detected.username ? " · @" + detected.username : "");
+    const at = detected.platform === "google" ? " · " : " · @";
+    $("platform").textContent = detected.platform + (detected.username ? at + detected.username : "");
     $("platform").className = "platform ok";
     if (detected.username) $("username").value = detected.username;
   } catch (_) {
@@ -67,14 +68,24 @@ async function init() {
 
 async function showResults(r) {
   $("results").classList.remove("hidden");
+  const isGoogle = r.platform === "google";
   const mediaCount = (r.media || []).length;
   $("summary").innerHTML =
-    "<b>" + parseInt(r.count, 10) + "</b> posts from @" + escHtml(r.profile.username || "profile") +
+    "<b>" + parseInt(r.count, 10) + "</b> " + (isGoogle ? "reviews from " : "posts from @") + escHtml(r.profile.username || "profile") +
     " · " + parseInt(mediaCount, 10) + " media files";
+  // The Markdown report is a Google Business deliverable; the stats export is
+  // engagement-based and only makes sense for social posts.
+  $("markdown").classList.toggle("hidden", !isGoogle);
+  $("stats").classList.toggle("hidden", isGoogle);
 
   // Always default to the profile currently loaded (not a remembered folder from
   // a previous, different profile). You can still edit it before downloading.
-  $("folder").value = "multiscraper/" + (r.profile.username || "profile");
+  $("folder").value = "multiscraper/" + sanitizeFolder(r.profile.username || "profile");
+}
+
+// Business names can contain spaces/greek/punctuation; keep folder names tame.
+function sanitizeFolder(s) {
+  return String(s).trim().replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, "_").slice(0, 60) || "profile";
 }
 
 function currentFolder() {
@@ -170,6 +181,58 @@ $("csv").addEventListener("click", () => {
   for (const row of lastResult.rows) lines.push(keys.map((k) => esc(row[k])).join(","));
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   download((lastResult.profile.username || "profile") + "_" + stamp + ".csv", lines.join("\n"), "text/csv");
+});
+
+// Google Business: one readable Markdown report — business header, then every
+// review — good for handing to a client or feeding to an LLM as-is.
+function buildMarkdown(r) {
+  const p = r.profile || {};
+  const md = [];
+  const line = (label, v) => {
+    if (v != null && v !== "" && v !== "Not Available") md.push("- **" + label + ":** " + v);
+  };
+  md.push("# " + (p.username || "Google Business"));
+  if (p.description) md.push("", "> " + p.description);
+  md.push("");
+  line("Category", p.category);
+  line("Rating", p.rating != null ? p.rating + (p.review_count ? " (" + p.review_count + " reviews)" : "") : null);
+  line("Address", p.address);
+  line("Phone", p.phone);
+  line("Hours", p.hours);
+  line("Price range", p.price_range);
+  line("Website", p.website);
+  line("Google Maps", p.maps_url);
+  md.push("", "_Exported by Multiscraper on " + new Date().toISOString().slice(0, 10) + "_", "");
+  md.push("## Reviews (" + r.rows.length + ")", "");
+  for (const row of r.rows) {
+    const stars = typeof row["Review Rating"] === "number" ? "★".repeat(row["Review Rating"]) + "☆".repeat(5 - row["Review Rating"]) : String(row["Review Rating"]);
+    const date = (row["Review Date"] || "").slice(0, 10) || row["Review Date (relative)"] || "";
+    md.push("### " + stars + " — " + (row["Review Author"] || "A Google User") + (date ? " — " + date : ""));
+    md.push("");
+    md.push(row["Review Text"] && row["Review Text"] !== "Not Available" ? row["Review Text"] : "_(no text — rating only)_");
+    if (row["Review Text (translated)"] && row["Review Text (translated)"] !== "Not Available") {
+      md.push("", "_Translated:_ " + row["Review Text (translated)"]);
+    }
+    if (row["Owner Reply"] && row["Owner Reply"] !== "Not Available") {
+      md.push("", "> **Owner reply:** " + row["Owner Reply"].replace(/\n/g, "\n> "));
+    }
+    if (row["Review Images"] && row["Review Images"] !== "Not Available") {
+      const imgs = String(row["Review Images"]).split(/\s+/).filter(Boolean);
+      if (imgs.length) md.push("", imgs.map((u, i) => "[photo " + (i + 1) + "](" + u + ")").join(" · "));
+    }
+    md.push("");
+  }
+  return md.join("\n");
+}
+
+$("markdown").addEventListener("click", () => {
+  if (!lastResult) return;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  download(
+    sanitizeFolder(lastResult.profile.username || "business") + "_reviews_" + stamp + ".md",
+    buildMarkdown(lastResult),
+    "text/markdown"
+  );
 });
 
 let lastFailedFiles = [];

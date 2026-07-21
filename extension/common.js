@@ -63,9 +63,9 @@
   };
 
   // Reduce a full post record to just the export schema (drops internal _media).
-  MS.toExportRow = function (post) {
+  MS.toExportRow = function (post, keys) {
     const row = {};
-    for (const k of MS.SCHEMA_KEYS) row[k] = post[k] != null ? post[k] : "Not Available";
+    for (const k of keys || MS.SCHEMA_KEYS) row[k] = post[k] != null ? post[k] : "Not Available";
     return row;
   };
 

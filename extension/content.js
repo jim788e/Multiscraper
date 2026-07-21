@@ -10,6 +10,7 @@
     const host = location.hostname.replace(/^www\./, "");
     if (MS.instagram.matches(host)) return { name: "instagram", api: MS.instagram };
     if (MS.tiktok.matches(host)) return { name: "tiktok", api: MS.tiktok };
+    if (MS.google && MS.google.matches(host)) return { name: "google", api: MS.google };
     return null;
   }
 
@@ -41,7 +42,7 @@
       }
       const adapter = pickAdapter();
       if (!adapter) {
-        sendResponse({ ok: false, error: "Open an Instagram or TikTok profile tab first." });
+        sendResponse({ ok: false, error: "Open an Instagram profile, TikTok profile, or Google business page first." });
         return true;
       }
       const username = msg.username || adapter.api.usernameFromUrl(location.href);
@@ -59,7 +60,9 @@
         .scrape({ username, maxPosts: msg.maxPosts || 0 }, onProgress, () => stopFlag)
         .then((result) => {
           running = false;
-          const exportRows = result.posts.map(MS.toExportRow);
+          // Adapters may export a custom schema (e.g. Google reviews); default
+          // to the social-post schema otherwise.
+          const exportRows = result.posts.map((p) => MS.toExportRow(p, result.schemaKeys));
           const mediaFiles = MS.mediaManifest(result);
           chrome.storage.local.set({
             lastResult: {

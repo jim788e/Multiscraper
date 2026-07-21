@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Multiscraper — IG/TikTok Profile Exporter",
-  "version": "0.2.4",
-  "description": "Export all posts (images, videos, captions, real likes/comments) from an Instagram or TikTok profile you can view, and download the media.",
+  "name": "Multiscraper — IG/TikTok/Google Exporter",
+  "version": "0.3.0",
+  "description": "Export all posts from an Instagram or TikTok profile you can view, or the info and reviews of a Google business, and download the media.",
   "permissions": ["downloads", "storage", "scripting", "activeTab", "declarativeNetRequest"],
   "host_permissions": [
+    "https://www.google.com/*",
     "https://www.instagram.com/*",
     "https://i.instagram.com/*",
     "https://www.tiktok.com/*",
@@ -35,8 +36,8 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.instagram.com/*", "https://www.tiktok.com/*"],
-      "js": ["common.js", "platforms/instagram.js", "platforms/tiktok.js", "content.js"],
+      "matches": ["https://www.instagram.com/*", "https://www.tiktok.com/*", "https://www.google.com/*"],
+      "js": ["common.js", "platforms/instagram.js", "platforms/tiktok.js", "platforms/google.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }
