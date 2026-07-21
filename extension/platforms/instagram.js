@@ -51,11 +51,24 @@
       }
       throw new Error("Instagram is rate-limiting (HTTP " + res.status + "). Wait a few minutes, then resume.");
     }
-    if (!res.ok) throw new Error("Instagram request failed: HTTP " + res.status);
+    if (!res.ok) {
+      // Surface Instagram's own error message — a bare status code hides
+      // server-side breakage (e.g. deleted schemas) from the user.
+      let detail = "";
+      try {
+        const body = await res.text();
+        const j = JSON.parse(body);
+        detail = j && j.message ? " — " + j.message : "";
+      } catch (_) {}
+      throw new Error("Instagram request failed: HTTP " + res.status + detail);
+    }
     return res.json();
   }
 
-  async function resolveUser(username) {
+  // Primary lookup. Instagram intermittently breaks this endpoint server-side
+  // (e.g. the 2026 "ig_business_category_subvertical has been deleted" 400s),
+  // so callers must be prepared to fall back to resolveUserFallback().
+  async function resolveUserProfileInfo(username) {
     const url =
       "https://www.instagram.com/api/v1/users/web_profile_info/?username=" +
       encodeURIComponent(username);
@@ -63,6 +76,56 @@
     const user = j && j.data && j.data.user;
     if (!user) throw new Error('Profile "' + username + '" not found.');
     return user;
+  }
+
+  // Fallback 1: topsearch returns the numeric user id without touching the
+  // broken profile-info schema.
+  async function resolveUserViaSearch(username) {
+    const url =
+      "https://www.instagram.com/api/v1/web/search/topsearch/?query=" +
+      encodeURIComponent(username);
+    const j = await getJSON(url);
+    const hit = (j.users || []).find(
+      (u) => u.user && u.user.username.toLowerCase() === username.toLowerCase()
+    );
+    return hit ? hit.user : null;
+  }
+
+  // Fallback 2: the profile page HTML embeds the user id ("profilePage_<id>").
+  async function resolveUserViaHtml(username) {
+    const res = await fetch("https://www.instagram.com/" + encodeURIComponent(username) + "/", {
+      credentials: "include",
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const m = html.match(/profilePage_(\d+)/) || html.match(/"profile_id"\s*:\s*"(\d+)"/);
+    return m ? { pk: m[1], username } : null;
+  }
+
+  async function resolveUser(username) {
+    let primaryErr;
+    try {
+      return await resolveUserProfileInfo(username);
+    } catch (e) {
+      primaryErr = e;
+    }
+    let user = null;
+    try {
+      user = await resolveUserViaSearch(username);
+    } catch (_) {}
+    if (!user) {
+      try {
+        user = await resolveUserViaHtml(username);
+      } catch (_) {}
+    }
+    if (!user) throw primaryErr;
+    // Normalize the leaner fallback shape to what scrape() expects.
+    return {
+      id: String(user.pk || user.pk_id || user.id),
+      username: user.username || username,
+      full_name: user.full_name || "",
+      is_private: !!user.is_private,
+    };
   }
 
   async function feedPage(userId, maxId) {
