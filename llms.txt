@@ -1,0 +1,34 @@
+# Multiscraper — Chrome Manifest V3 Exporter
+
+> Multiscraper is a zero-dependency Chrome Extension (Manifest V3) designed to export feeds, listings, engagement metrics, and media files from Instagram, TikTok, and Google Business directly within the user's active, authenticated browser tab.
+
+## Core Files & Architecture Map
+
+- [manifest.json](file:///d:/dev/Multiscraper/extension/manifest.json): Extension configuration, host permissions (`*.instagram.com`, `*.tiktok.com`, `*.google.com`), and background service worker registration.
+- [common.js](file:///d:/dev/Multiscraper/extension/common.js): Core runtime namespace `window.MS`, shared schemas (`MS.SCHEMA_KEYS`), CSV serializer, `MS.captureBuffer` postMessage bridge, and MAIN-world interceptor injector.
+- [inject.js](file:///d:/dev/Multiscraper/extension/inject.js): Injected into the page's MAIN execution world to intercept anti-bot signed requests (`window.fetch` and `XMLHttpRequest.prototype.send`) and forward responses via origin-restricted `postMessage`.
+- [platforms/instagram.js](file:///d:/dev/Multiscraper/extension/platforms/instagram.js): Platform adapter for Instagram. Resolves user IDs, paginates the internal `/api/v1/feed/user/{user_id}/` REST endpoint with exponential backoff on `429`, and normalizes media trees and hidden engagement counts.
+- [platforms/tiktok.js](file:///d:/dev/Multiscraper/extension/platforms/tiktok.js): Platform adapter for TikTok. Drives auto-scrolling to trigger native signed `item_list` API calls, drains `MS.captureBuffer`, and parses engagement metrics and video candidates.
+- [platforms/google.js](file:///d:/dev/Multiscraper/extension/platforms/google.js): Platform adapter for Google Business listings and reviews (Google Search knowledge panels & Google Maps places). Discovers feature IDs (`findFid`), calls the `GetLocalBoqProxy` batched RPC endpoint, and generates Markdown review reports (`markdownReport`).
+- [content.js](file:///d:/dev/Multiscraper/extension/content.js): Content script orchestrator running in the isolated world. Dispatches scrape actions, manages progress events, and proxies in-page TikTok video blob downloads to preserve cookies.
+- [background.js](file:///d:/dev/Multiscraper/extension/background.js): Background service worker managing asynchronous file downloads via `chrome.downloads`, path sanitization (`sanitizeFolder`), and temporary `declarativeNetRequest` header rewriting (`Referer: https://www.tiktok.com/`).
+- [popup.js](file:///d:/dev/Multiscraper/extension/popup.js): Extension toolbar UI controller handling scrape lifecycle, progress bars, CSV/JSON/Markdown exports, and background download reconnection.
+- [tests/test-normalizer.js](file:///d:/dev/Multiscraper/tests/test-normalizer.js): Offline unit tests using Node.js `vm` sandbox for Instagram normalizer and schema validation.
+- [tests/test-download.js](file:///d:/dev/Multiscraper/tests/test-download.js): Offline unit tests for background download queuing, state transitions, and retry manifests.
+- [tests/test-google.js](file:///d:/dev/Multiscraper/tests/test-google.js): Offline unit tests for Google Business RPC normalization, translations, and owner reply extraction.
+
+## Key Concepts & Design Decisions
+
+### 1. First-Party Context Execution
+Meta, TikTok, and Google employ strict anti-bot and session verification algorithms. Rather than forging signatures externally, Multiscraper runs content scripts in the active logged-in tab where all outbound requests automatically carry first-party session cookies.
+
+### 2. Multi-Strategy Scraping Patterns
+- **Direct Authenticated REST** (Instagram): Requests `/api/v1/feed/user/...` directly with `X-IG-App-ID` and cookie authentication.
+- **Scroll & MAIN-World Interception** (TikTok): Patches network listeners in the page context via `inject.js` and lets TikTok's runtime sign calls (`X-Bogus`, `msToken`).
+- **Batched Protocol RPC** (Google Business): Calls Google's internal `GetLocalBoqProxy` RPC with the business Feature ID (FID) to paginate user reviews beyond DOM rendering limits.
+
+### 3. Declarative Header Modification
+TikTok video CDNs reject media downloads lacking a `tiktok.com` referer. Multiscraper uses `chrome.declarativeNetRequest` dynamic rule `9001` to inject `Referer: https://www.tiktok.com/` exclusively while a TikTok download batch runs, unregistering the rule immediately upon completion.
+
+### 4. Zero External Runtime Dependencies
+The extension is built entirely in vanilla JavaScript (ES6+), standard CSS, and native Web APIs, requiring no compilation, bundlers, or npm dependencies at runtime.

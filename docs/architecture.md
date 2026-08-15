@@ -1,67 +1,69 @@
 # Multiscraper Architecture & Component Design
 
-This document details the architectural layout, execution contexts, runtime lifecycle, and messaging protocol of Multiscraper.
+This document details the architectural layout, execution contexts, runtime lifecycle, scraping strategies, and messaging protocols of Multiscraper.
 
 ---
 
-## 1. Context Isolation & Components
+## 1. Context Isolation & System Architecture
 
-As a Chrome Manifest V3 extension, Multiscraper operates across three distinct execution environments. This isolation is crucial to bypass network restrictions while ensuring a responsive UI and safe background downloading.
+As a Chrome Manifest V3 extension, Multiscraper operates across three distinct execution environments. This isolation ensures security sandbox compliance while enabling first-party session reuse, DOM inspection, and uninterrupted background media downloading.
 
 ```mermaid
 graph TD
-    subgraph "Browser UI"
-        Popup[popup.html / popup.js]
+    subgraph "Browser Toolbar UI"
+        Popup["popup.html / popup.js<br>(Interactive Controls & Exports)"]
     end
 
-    subgraph "Target Web Page (instagram.com or tiktok.com)"
-        subgraph "Isolated Context"
-            Content[content.js]
-            Common[common.js]
-            Adapters[platforms/instagram.js<br>platforms/tiktok.js]
+    subgraph "Target Web Tab (instagram.com / tiktok.com / google.com)"
+        subgraph "Isolated World Context"
+            Content["content.js (Orchestrator)"]
+            Common["common.js (Shared Utilities)"]
+            IGAdapter["platforms/instagram.js"]
+            TTAdapter["platforms/tiktok.js"]
+            GoogleAdapter["platforms/google.js"]
         end
         subgraph "MAIN World Context"
-            Inject[inject.js]
+            Inject["inject.js (Network Hook)"]
         end
     end
 
     subgraph "Extension Background"
-        Worker[background.js Service Worker]
+        Worker["background.js Service Worker<br>(chrome.downloads & DNR Header Rules)"]
     end
 
     Popup <-->|chrome.runtime Messaging| Content
     Popup <-->|chrome.runtime Messaging| Worker
     Content <-->|window.postMessage| Inject
     Content <-->|chrome.runtime Messaging| Worker
-    Worker -->|chrome.downloads| Disk[(User's Disk)]
+    Worker -->|chrome.downloads| Disk[("User's Disk (/Downloads)")]
 ```
 
-### Execution Contexts
+### Execution Context Responsibilities
 
-1. **Extension Popup UI Context** (`popup.html` / `popup.js`)
-   - **Environment**: Runs inside the browser toolbar bubble. Closed when clicked away.
-   - **Responsibilities**: Accepts user configurations (username, limit, subfolder), displays live progress bars, triggers CSV/JSON exports, and manages media download runs.
+1. **Extension Popup UI Context** ([`popup.html`](file:///d:/dev/Multiscraper/extension/popup.html) / [`popup.js`](file:///d:/dev/Multiscraper/extension/popup.js))
+   - **Environment**: Transient browser action window.
+   - **Responsibilities**: Detects active tab platform, captures user parameters (username, post limits, subfolder paths), renders live scraping and download progress bars, triggers CSV/JSON/Markdown exports, and handles one-click failed media retries.
    - **Storage Access**: Reads and writes to `chrome.storage.local`.
 
-2. **Content Script Isolated Context** (`common.js`, `platforms/*.js`, `content.js`)
-   - **Environment**: Runs in a sandboxed, isolated JS world inside the active tab. It shares the DOM with the host page but has no access to the host page's javascript variables or functions.
-   - **Responsibilities**: Detects URL states, runs the scraping loop (direct API requests or scroll-and-capture), normalizes raw JSON data, and handles TikTok video CORS-proxy blob fetching.
-   - **Security Benefits**: Fetch requests carried out here automatically inherit the user's active session cookies (cookies are forwarded by Chrome as first-party requests).
+2. **Content Script Isolated Context** ([`common.js`](file:///d:/dev/Multiscraper/extension/common.js), [`platforms/*.js`](file:///d:/dev/Multiscraper/extension/platforms/), [`content.js`](file:///d:/dev/Multiscraper/extension/content.js))
+   - **Environment**: Sandboxed JavaScript world with DOM access to the active tab, isolated from the page's global variables.
+   - **Responsibilities**: Detects profile URLs, executes platform-specific extraction algorithms (REST pagination, scroll-interception, or RPC batching), normalizes raw data records, and handles in-page TikTok video blob downloads.
+   - **Security Benefits**: All `fetch()` calls executed here automatically forward the user's active session cookies as first-party requests.
 
-3. **Page MAIN World Context** (`inject.js`)
-   - **Environment**: Injected directly into the host page DOM via a `<script>` tag. It executes in the exact same scope as the site's own scripts.
-   - **Responsibilities**: Intercepts requests by overriding `window.fetch` and `XMLHttpRequest.prototype.send`. Since TikTok signs all requests using anti-bot markers (`X-Bogus`/`msToken`), this interceptor lets TikTok's page do the signing, then copies the signed JSON response.
+3. **Page MAIN World Context** ([`inject.js`](file:///d:/dev/Multiscraper/extension/inject.js))
+   - **Environment**: Script injected directly into the DOM tree executing in the exact same scope as the host site.
+   - **Responsibilities**: Overrides `window.fetch` and `XMLHttpRequest.prototype.send`. Intercepts responses from anti-bot cryptographically signed endpoints (`X-Bogus`/`msToken` on TikTok) and forwards parsed payloads to the isolated world via origin-restricted `window.postMessage`.
 
-4. **Background Service Worker Context** (`background.js`)
-   - **Environment**: Runs in the background on-demand. Persists across popup closures.
-   - **Responsibilities**: Downloads media files sequentially using `chrome.downloads`. Updates dynamic routing rules via `chrome.declarativeNetRequest` to append `Referer: https://www.tiktok.com/` headers to TikTok CDN downloads (bypassing TikTok hotlinking protections).
+4. **Background Service Worker Context** ([`background.js`](file:///d:/dev/Multiscraper/extension/background.js))
+   - **Environment**: Event-driven background worker that stays alive during active download tasks.
+   - **Responsibilities**: Manages queueing and execution of `chrome.downloads`, applies path sanitization, tracks on-disk confirmation via `chrome.downloads.onChanged`, and dynamically registers/unregisters `Referer: https://www.tiktok.com/` rules via `chrome.declarativeNetRequest`.
 
 ---
 
 ## 2. Scraping Flow Diagrams
 
-### Instagram Direct API Pagination
-Instagram feeds are scraped using authenticated direct web API requests.
+### A. Instagram Direct API Pagination
+Instagram feeds are extracted using direct, authenticated web API requests with exponential backoff.
 
 ```mermaid
 sequenceDiagram
@@ -72,13 +74,13 @@ sequenceDiagram
 
     P->>C: chrome.tabs.sendMessage("scrape", {username, maxPosts})
     C->>IG: fetch(/api/v1/users/web_profile_info/?username=...)
-    IG-->>C: profile details + userId
-    Note over C: Resolve userId & start loop
+    IG-->>C: Profile details + userId
+    Note over C: Resolve userId & initialize loop
 
     loop Until maxPosts reached OR no more pages
-        C->>IG: fetch(/api/v1/feed/user/{userId}/?count=33&max_id=...)
+        C->>IG: fetch(/api/v1/feed/user/{userId}/?count=12&max_id=...)
         IG-->>C: JSON list of post objects
-        C->>C: Normalize records into common schema
+        C->>C: Normalize records into MS.SCHEMA_KEYS
         C->>P: chrome.runtime.sendMessage("progress", {collected, total})
         Note over C: Wait 800-1500ms (rate-limit backoff jitter)
     end
@@ -87,8 +89,10 @@ sequenceDiagram
     C->>P: chrome.runtime.sendMessage("done", {count})
 ```
 
-### TikTok Capture-and-Scroll Loop
-TikTok feeds are intercepted since request parameters are cryptographically signed.
+---
+
+### B. TikTok Capture-and-Scroll Loop
+TikTok feeds are intercepted from the page's own signed requests while auto-scrolling.
 
 ```mermaid
 sequenceDiagram
@@ -105,7 +109,7 @@ sequenceDiagram
 
     loop Scroll Loop (Until 6 idle rounds OR maxPosts reached)
         C->>C: window.scrollTo(0, document.body.scrollHeight)
-        TT->>TT: Triggers signed API load request
+        TT->>TT: Triggers signed item_list API call
         Note over I: Intercepts raw response text
         I->>C: window.postMessage({__ms: "capture", url, body})
         C->>C: Push into MS.captureBuffer
@@ -120,11 +124,39 @@ sequenceDiagram
 
 ---
 
+### C. Google Business Knowledge Panel & RPC Pagination
+Google Business places (Google Search panels & Maps place pages) are extracted via DOM analysis and `GetLocalBoqProxy` RPC pagination.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Popup (popup.js)
+    participant C as Content (content.js)
+    participant G as Google Web / Boq RPC
+
+    P->>C: chrome.tabs.sendMessage("scrape", {username, maxPosts})
+    Note over C: Google detected: findFid()
+    C->>C: Extract FID (0x...:0x...) & parse subtitle / attributes
+    C->>P: chrome.runtime.sendMessage("progress", {collected: 0, total: declaredReviews})
+
+    loop Until maxPosts reached OR no nextPageToken
+        C->>G: POST /_/SearchUi/data/batched/GetLocalBoqProxy (f.req=[[[...]]])
+        G-->>C: Batched response with anti-XSS prefix )]}'
+        C->>C: Strip prefix, extract review items, translations & owner replies
+        C->>C: Normalize records into Google EXPORT_KEYS
+        C->>P: chrome.runtime.sendMessage("progress", {collected, total})
+        Note over C: Wait 600-1200ms
+    end
+
+    C->>C: Save export rows & markdownReport to chrome.storage.local
+    C->>P: chrome.runtime.sendMessage("done", {count})
+```
+
+---
+
 ## 3. Media Download Pipeline
 
-Downloading must bypass Content Security Policies (CSP) and hotlink checkers:
-- **Instagram**: Popup contacts Background Script which calls `chrome.downloads`.
-- **TikTok**: Videos require session cookies and origin headers. The content script fetches the video bytes inside the tab context, transforms the resulting binary blob into a JSON-serializable Data URL, and pipes it to the Background script to write to disk.
+Downloading media attachments must bypass Content Security Policies (CSP), referrer requirements, and session gates:
 
 ```mermaid
 sequenceDiagram
@@ -132,25 +164,25 @@ sequenceDiagram
     participant P as Popup (popup.js)
     participant C as Content (content.js)
     participant B as Background (background.js)
-    participant CDN as TikTok / IG CDN
+    participant CDN as Media CDN (IG / TikTok / Google)
 
     P->>P: Read lastResult.media manifest
     
-    alt Instagram Media
+    alt Instagram & Google Media
         P->>B: chrome.runtime.sendMessage("downloadMedia", {files, folder, platform})
         B->>CDN: chrome.downloads.download(file.url)
         CDN-->>B: Downloads file to disk
         B->>P: chrome.runtime.sendMessage("mediaProgress", {done, ok, fail})
-    else TikTok Media
+    else TikTok Media (Session-Gated Videos)
         P->>C: chrome.tabs.sendMessage("tiktokDownload", {files, folder})
         loop For each TikTok Video
             C->>CDN: fetch(video.url, {credentials: "include"})
-            CDN-->>C: Returns video stream
+            CDN-->>C: Returns video binary stream
             C->>C: Convert blob to DataURL (base64)
             C->>B: chrome.runtime.sendMessage("saveDownload", {url: dataUrl, filename})
-            B->>B: chrome.downloads.download(dataUrl) (Write to file)
+            B->>B: chrome.downloads.download(dataUrl)
             B-->>C: {ok: true}
-            C->>P: chrome.runtime.sendMessage("mediaProgress", {done})
+            C->>P: chrome.runtime.sendMessage("mediaProgress", {done, ok, fail})
         end
     end
 ```
@@ -159,25 +191,23 @@ sequenceDiagram
 
 ## 4. Message Passing Protocol
 
-All internal extension communications use the following runtime message schema:
-
-### 1. Internal Message Interfaces (Extension Bus)
+### Internal Extension Bus
 
 | Sender | Receiver | Message Object (`msg`) | Response Style / Actions |
 | --- | --- | --- | --- |
-| **Popup** | **Content** | `{ type: "detect" }` | Returns `{ platform: "instagram"\|"tiktok"\|null, username: string\|null }` |
-| **Popup** | **Content** | `{ type: "scrape", username: string, maxPosts: number }` | Starts the platform scrape. Returns `{ ok: true, count: number }` or `{ ok: false, error: string }`. Runs asynchronously. |
-| **Popup** | **Content** | `{ type: "stop" }` | Triggers stop flag, breaking active scrape loop. Returns `{ ok: true }`. |
-| **Content** | **Popup** | `{ type: "progress", collected: number, total: number\|null, profile: string }` | Updates popup scrape progress status bar. |
-| **Content** | **Popup** | `{ type: "done", platform: string, profile: object, count: number }` | Informs popup that scrape is complete and results are stored. |
+| **Popup** | **Content** | `{ type: "detect" }` | Returns `{ platform: "instagram"\|"tiktok"\|"google"\|null, username: string\|null }` |
+| **Popup** | **Content** | `{ type: "scrape", username: string, maxPosts: number }` | Starts scraping. Returns `{ ok: true, count: number }` or `{ ok: false, error: string }`. Runs asynchronously. |
+| **Popup** | **Content** | `{ type: "stop" }` | Sets stop flag to break the active loop. Returns `{ ok: true }`. |
+| **Content** | **Popup** | `{ type: "progress", collected: number, total: number\|null, profile: string }` | Live updates for the popup progress bar and counter. |
+| **Content** | **Popup** | `{ type: "done", platform: string, profile: object, count: number }` | Informs popup that scraping completed and results are saved in storage. |
 | **Content** | **Popup** | `{ type: "error", error: string }` | Informs popup that scrape failed, resetting controls. |
-| **Popup** | **Background** | `{ type: "downloadMedia", files: Array, folder: string, platform: string }` | Starts background sequential download task. Background responds asynchronously. |
-| **Background** | **Popup** | `{ type: "mediaProgress", done: number, ok: number, fail: number, total: number }` | Updates popup media progress stats. |
-| **Popup** | **Content** | `{ type: "tiktokDownload", folder: string, files: Array }` | Informs content script to start TikTok in-tab CORS-bypass download loop. |
-| **Content** | **Background** | `{ type: "saveDownload", url: string, filename: string }` | Asks background worker to write data URL payload to disk. Returns `{ ok: boolean, id?: number, error?: string }`. |
+| **Popup** | **Background** | `{ type: "downloadMedia", files: Array, folder: string, platform: string }` | Dispatches background batch download. |
+| **Background** | **Popup** | `{ type: "mediaProgress", done: number, ok: number, fail: number, total: number }` | Reports confirmed disk write counts. |
+| **Popup** | **Content** | `{ type: "tiktokDownload", folder: string, files: Array }` | Dispatches authenticated in-tab video fetching for TikTok. |
+| **Content** | **Background** | `{ type: "saveDownload", url: string, filename: string }` | Calls background worker to save Data URL to disk. |
 
-### 2. Main-Isolated World Bridge
+### MAIN-to-Isolated World Message Bridge
 
 | Sender | Receiver | Window Message Payload | Description |
 | --- | --- | --- | --- |
-| **Injected Script** (MAIN) | **Common JS** (Isolated) | `{ __ms: "capture", url: string, body: object }` | Sent via `window.postMessage` when a matched URL response is parsed by `inject.js`. |
+| **Injected Script** (MAIN) | **Common JS** (Isolated) | `{ __ms: "capture", url: string, body: object }` | Sent via `window.postMessage` when a matched network request is intercepted by [`inject.js`](file:///d:/dev/Multiscraper/extension/inject.js). |

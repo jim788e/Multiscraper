@@ -94,13 +94,16 @@ manages the policy before the setting will stick.
 
 ## Documentation
 
-Detailed architectural, usage, and development manuals are available in the `docs/` folder:
+Detailed architectural, usage, API, and development manuals are available in the repository:
 
-*   **[Architecture & Component Design](docs/architecture.md)**: Details extension execution contexts, TikTok/Instagram scraping loops, and the message passing bus (includes Mermaid flow diagrams).
-*   **[API Reference](docs/api-reference.md)**: Internal namespace `window.MS` parameters, `common.js` helper methods, and `PlatformAdapter` specifications.
-*   **[User Guide](docs/user-guide.md)**: Installation, silent downloads Chrome configuration, marketing stats calculations, and CDN link expiration.
-*   **[Developer Guide](docs/developer-guide.md)**: Sandbox vm testing setups, repo structure, and a tutorial for writing new platform adapters.
+*   **[Full Documentation Manual](docs/FULL_DOCUMENTATION.md)**: Master consolidated technical reference handbook.
+*   **[Architecture & Component Design](docs/architecture.md)**: Extension execution contexts, TikTok/Instagram/Google scraping loops, and message passing bus.
+*   **[API Reference](docs/api-reference.md)**: Internal namespace `window.MS`, `common.js` helpers, `PlatformAdapter` specifications, and message bus dictionary.
+*   **[User Guide](docs/user-guide.md)**: Installation, silent downloads Chrome configuration, marketing stats, Google Business review extraction, and Markdown reports.
+*   **[Developer Guide](docs/developer-guide.md)**: Sandbox VM testing setups, repo structure, and a step-by-step tutorial for writing new platform adapters.
 *   **[Security Audit](docs/security-audit.md)**: Chrome extension security controls audit, XSS patching, path traversals, and credential security.
+*   **[Changelog](CHANGELOG.md)**: Semantic Versioning and Keep a Changelog release history.
+*   **[AI Reference Index](llms.txt)**: Standard machine-readable project overview and file index.
 
 ## Files
 

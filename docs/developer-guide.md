@@ -1,84 +1,103 @@
 # Multiscraper Developer Guide
 
-This guide describes the code style conventions, test environments, asset compilation, and platform expansion patterns of the Multiscraper project.
+This guide describes code style conventions, test environments, platform expansion patterns, and developer tools for the Multiscraper project.
 
 ---
 
-## 1. Project Layout & Design Philosophy
+## 1. Project Layout & Architecture Philosophy
 
-Multiscraper is built with zero runtime dependencies. It runs completely within the browser sandbox using vanilla JavaScript, standard CSS, and native Web APIs.
+Multiscraper is built with **zero runtime dependencies**. It executes natively within the browser sandbox using vanilla JavaScript (ES6+), standard CSS, and native Web APIs without bundlers or compilers.
 
 ```
 Multiscraper/
 ├── docs/                     # Documentation files
-├── extension/                # The Chrome Extension source files
-│   ├── manifest.json         # Extension MV3 configuration & permissions
+│   ├── api-reference.md      # API & message bus specifications
+│   ├── architecture.md       # Architectural layout & sequence diagrams
+│   ├── developer-guide.md    # Developer workflows & test setup
+│   ├── security-audit.md     # Security posture & vulnerability checklist
+│   ├── user-guide.md         # End-user operation guide
+│   └── FULL_DOCUMENTATION.md # Single-source master documentation
+├── extension/                # Chrome Extension source (Manifest V3)
+│   ├── manifest.json         # Extension configuration & host permissions
 │   ├── common.js             # Shared helpers, CSV builder, schema definitions
-│   ├── inject.js             # MAIN-world network listener (fetch/XHR patch)
-│   ├── content.js            # Isolated-world orchestrator & TikTok downloader
-│   ├── background.js         # Service worker downloading media files
-│   ├── popup.html            # UI Structure
-│   ├── popup.css             # UI styling
-│   ├── popup.js              # UI interaction logic
+│   ├── inject.js             # MAIN-world network listener (fetch/XHR hook)
+│   ├── content.js            # Isolated-world orchestrator & media proxy
+│   ├── background.js         # Service worker downloading media & DNR rules
+│   ├── popup.html            # Extension popup markup
+│   ├── popup.css             # Extension popup styling
+│   ├── popup.js              # Extension popup controller
 │   └── platforms/            # Platform-specific scraping adapters
 │       ├── instagram.js      # Instagram scraper
-│       └── tiktok.js         # TikTok scraper
-├── tests/                    # Offline stub tests
-│   ├── test-normalizer.js    # Verifies adapter normalizers & schema coverage
-│   └── test-download.js      # Verifies background download state logic
-└── tools/
-    └── generate-icons.js     # PNG generator for extension icons (no deps)
+│       ├── tiktok.js         # TikTok scraper
+│       └── google.js         # Google Business & reviews scraper
+├── tests/                    # Offline unit test suites (Node.js vm sandbox)
+│   ├── test-normalizer.js    # Instagram normalization & schema tests
+│   ├── test-download.js      # Background download manager tests
+│   └── test-google.js        # Google Business RPC normalizer tests
+├── tools/
+│   └── generate-icons.js     # PNG generator for extension icons (zero deps)
+├── CHANGELOG.md              # Keep a Changelog release history
+├── llms.txt                  # AI-friendly documentation index
+└── package.json              # Developer scripts & repository metadata
 ```
 
 ### Coding Guidelines
-- **No Bundler / Frameworks**: Write standard modern ES. Do not use build steps (like Webpack or Vite) or TypeScript compilation.
-- **Dependency-Free**: Keep the runtime extension free of external npm packages. Node dependencies are only permitted in developer tool scripts.
-- **Design Tokens**: Standard UI colors and spacing rules must match the popup CSS theme (e.g., `#7a5af8` accent).
+- **Zero Runtime Dependencies**: The extension runtime must never rely on npm packages. Node dependencies are only permitted in standalone developer tools or test scripts.
+- **No Bundlers / Transpilers**: Write standard, modern ES6+ JavaScript. Code is loaded directly by the browser without Webpack, Vite, or Babel.
+- **Code Readability**: Use early returns for readability, descriptive function/variable naming, and comprehensive JSDoc annotations.
 
 ---
 
 ## 2. Test Verification Workflow
 
-Offline unit testing uses Node's built-in `vm` (Virtual Machine) module to stub out browser-specific objects (`window`, `document`, `chrome`) and run the source JavaScript in a simulated environment.
+Offline unit testing uses Node.js's built-in `vm` (Virtual Machine) module to stub out browser and Chrome extension globals (`window`, `document`, `chrome`, `fetch`, `location`) and execute source scripts in an isolated sandbox.
 
-### Running Tests
-Execute the tests locally by running:
+### Running the Test Suite
+Execute the entire test suite by running:
 ```bash
 npm test
 ```
-This runs the full test suite consisting of two separate test scripts.
 
-### 1. Normalizer Unit Tests (`tests/test-normalizer.js`)
-- **Stubs**: Stubs the document cookies, runtime configurations, and DOM creation structures.
-- **Process**: Loads `common.js` and `platforms/instagram.js` inside the sandbox, feeds mock feed payloads representing videos, carousels, and hidden-like posts, and asserts:
-  - All target export fields are present.
-  - Normalization extracts highest-resolution image candidates.
-  - Correct formatting for hidden engagement counts.
-  - Correct flattening order for carousel arrays.
+### Test Suite Breakdown
 
-### 2. Download Engine Tests (`tests/test-download.js`)
-- **Stubs**: Stubs `chrome.downloads.download`, storage state, and messaging handlers.
-- **Process**: Tests that `background.js` handles all async conditions correctly, including:
-  - Immediate start failures.
-  - Rapid completions (where files finish downloading before the ID is registered).
-  - Proper tracking and reporting of progress statistics.
-  - Outputting failed items for the popup's retry queue.
+#### 1. Normalizer Unit Tests ([`tests/test-normalizer.js`](file:///d:/dev/Multiscraper/tests/test-normalizer.js))
+- **Scope**: Stubs cookies, DOM structures, and loads [`common.js`](file:///d:/dev/Multiscraper/extension/common.js) and [`platforms/instagram.js`](file:///d:/dev/Multiscraper/extension/platforms/instagram.js).
+- **Assertions**:
+  - Validates `MS.SCHEMA_KEYS` field presence.
+  - Verifies highest-resolution candidate selection for images and videos.
+  - Tests formatting for hidden like/comment counts.
+  - Asserts carousel array flattening and 0-indexed ordering.
+
+#### 2. Download Manager Tests ([`tests/test-download.js`](file:///d:/dev/Multiscraper/tests/test-download.js))
+- **Scope**: Stubs `chrome.downloads`, `chrome.storage.local`, and Chrome messaging events in [`background.js`](file:///d:/dev/Multiscraper/extension/background.js).
+- **Assertions**:
+  - Tests immediate start failure handling.
+  - Asserts fast pre-resolution (files completing before download ID registration).
+  - Verifies live progress calculation and disk write confirmation.
+  - Verifies that failed items are preserved for one-click popup retries.
+
+#### 3. Google Business Normalizer Tests ([`tests/test-google.js`](file:///d:/dev/Multiscraper/tests/test-google.js))
+- **Scope**: Stubs DOM selectors and executes [`platforms/google.js`](file:///d:/dev/Multiscraper/extension/platforms/google.js) with mock `GetLocalBoqProxy` RPC payloads.
+- **Assertions**:
+  - Verifies Feature ID extraction from DOM `data-fid` and Maps URLs.
+  - Asserts proper extraction of ratings, relative dates, ISO timestamps, and review images.
+  - Verifies owner reply detection and disambiguation against guided Q&A blocks and auto-translations.
+  - Ensures export rows strictly adhere to `EXPORT_KEYS`.
 
 ---
 
 ## 3. Adding a New Platform Adapter
 
-To support scraping a new website, follow these four steps:
+To add support for a new platform, follow these steps:
 
 ### Step 1: Create the Adapter Script
-Create `extension/platforms/yourplatform.js`. Add an IIFE that attaches the adapter definition to the shared `window.MS` namespace:
+Create `extension/platforms/yourplatform.js` and register the adapter on the `window.MS` namespace:
 
 ```javascript
 (function () {
   const MS = (window.MS = window.MS || {});
 
   function normalize(item) {
-    // Transform raw platform items to match MS.SCHEMA_KEYS
     return {
       id: item.id,
       "Post Author": item.user_name,
@@ -87,67 +106,60 @@ Create `extension/platforms/yourplatform.js`. Add an IIFE that attaches the adap
       "Post Image": item.image_url || "Not Available",
       "Post Video": item.video_url || "Not Available",
       "Post Likes": item.likes ?? "Not Available",
-      // ... populate remaining SCHEMA_KEYS
+      "Post Comments Count": item.comments_count ?? "Not Available",
       _shortcode: item.id,
       _media: [{ url: item.image_url, kind: "image" }]
     };
   }
 
   async function scrape(opts, onProgress, shouldStop) {
-    // 1. Fetch data from platform endpoint or capture buffer
-    // 2. Parse and normalize items
-    // 3. Call onProgress({ collected: posts.length, total: totalPosts, profile: opts.username })
+    // 1. Paginate platform endpoint or drain MS.captureBuffer
+    // 2. Normalize records
+    // 3. Emit progress: onProgress({ collected: posts.length, total: totalCount, profile: opts.username })
     // 4. Return { platform: "yourplatform", profile: { username: opts.username }, posts }
   }
 
   MS.yourplatform = {
     matches: (host) => /(^|\.)yourplatform\.com$/.test(host),
     usernameFromUrl: (url) => {
-      // Extract and return username string, or null if not a profile URL
+      // Extract username string or null if not on profile page
     },
     scrape,
   };
 })();
 ```
 
-### Step 2: Register the Adapter in the Orchestrator
-Open `extension/content.js` and modify `pickAdapter()` to check your platform:
+### Step 2: Register in Content Orchestrator
+Open [`extension/content.js`](file:///d:/dev/Multiscraper/extension/content.js) and add the check to `pickAdapter()`:
 
 ```javascript
 function pickAdapter() {
   const host = location.hostname.replace(/^www\./, "");
   if (MS.instagram.matches(host)) return { name: "instagram", api: MS.instagram };
   if (MS.tiktok.matches(host)) return { name: "tiktok", api: MS.tiktok };
-  if (MS.yourplatform.matches(host)) return { name: "yourplatform", api: MS.yourplatform };
+  if (MS.google && MS.google.matches(host)) return { name: "google", api: MS.google };
+  if (MS.yourplatform && MS.yourplatform.matches(host)) return { name: "yourplatform", api: MS.yourplatform };
   return null;
 }
 ```
 
-### Step 3: Update permissions in Manifest
-Open `extension/manifest.json` and add the host patterns to:
-- **`content_scripts[0].js`**: Load your script before `content.js` (e.g. `platforms/yourplatform.js`).
-- **`content_scripts[0].matches`**: Add access rules (e.g. `*://*.yourplatform.com/*`).
-- **`host_permissions`**: Grant network connection permissions for target endpoints and CDNs.
+### Step 3: Update Permissions in Manifest
+Open [`extension/manifest.json`](file:///d:/dev/Multiscraper/extension/manifest.json):
+- Add `platforms/yourplatform.js` to `content_scripts[0].js`.
+- Add URL pattern match to `content_scripts[0].matches`.
+- Add target domains and CDNs to `host_permissions`.
 
-### Step 4: Add Unit Tests
-Extend `tests/test-normalizer.js` to load your new script, define raw platform mocks, and verify schema output.
+### Step 4: Write Offline Unit Tests
+Add a test script under `tests/test-yourplatform.js` and register it in [`package.json`](file:///d:/dev/Multiscraper/package.json).
 
 ---
 
 ## 4. Asset Compilation (Icon Generator)
 
-Extension icons are rendered using `tools/generate-icons.js`. This script encodes PNG files directly without external libraries (like Canvas or sharp).
+Extension icons are rendered using [`tools/generate-icons.js`](file:///d:/dev/Multiscraper/tools/generate-icons.js). This script generates valid PNG images directly using Node's built-in `zlib.deflateSync` without third-party graphics packages:
 
-### PNG Encoder Details
-- Uses Node's built-in `zlib.deflateSync` to compress raw pixel buffers.
-- Generates required IHDR, IDAT, and IEND chunks.
-- Computes standard CRC-32 checksum tables to build compliant files.
-
-### Drawing Customizations
-The script renders a purple rounded square containing a 3x3 grid motif:
-- Modify `BG` (`[r, g, b]`) on line 9 to update the background color.
-- Modify `FG` (`[r, g, b]`) on line 10 to update the grid motif color.
-- Re-generate the icons after making changes:
+- Renders icons at sizes: 16x16, 32x32, 48x48, and 128x128.
+- To re-generate icons:
   ```bash
   node tools/generate-icons.js
   ```

@@ -1,6 +1,6 @@
 # Multiscraper API Reference
 
-This reference details the internal JavaScript classes, global namespaces, platform contracts, and network interception hooks used throughout the Multiscraper extension.
+This reference details the internal JavaScript classes, global namespaces, platform contracts, network interception hooks, and Chrome runtime messaging protocols used throughout the Multiscraper extension.
 
 ---
 
@@ -9,7 +9,7 @@ This reference details the internal JavaScript classes, global namespaces, platf
 All script files share a unified namespace `window.MS` (created dynamically in the content-script context).
 
 ### `MS.SCHEMA_KEYS`
-An array of string keys representing the target export schema. Platform adapters must normalize raw payloads to match this exact vocabulary:
+An array of string keys representing the target export schema for social platforms (Instagram / TikTok):
 ```javascript
 [
   "id", "Post Author", "Post Author Full Name", "Post Author Image",
@@ -27,43 +27,49 @@ An array of string keys representing the target export schema. Platform adapters
 
 ### `MS.captureBuffer`
 - **Type**: `Array<{ url: string, body: object }>`
-- **Description**: Intermediate buffer fed by `inject.js` via `window.postMessage`. TikTok and other scroll-and-capture adapters query and drain this buffer on each page scroll interval.
+- **Description**: Intermediate ring buffer (bounded to 100 entries) fed by `inject.js` via `window.postMessage`. TikTok and other scroll-and-capture adapters query and drain this buffer on each page scroll interval.
+
+### `MS.flushBuffer()`
+- **Returns**: `void`
+- **Description**: Clears all pending entries from `MS.captureBuffer`.
 
 ### `MS.ensureInterceptor()`
 - **Returns**: `void`
-- **Description**: Injector function that appends `inject.js` as a `<script>` element inside the active page's DOM. Execution is restricted to run exactly once per tab instance.
+- **Description**: Injects `inject.js` as a `<script>` tag into the active page's DOM. Execution is guarded by `MS._injected` to run exactly once per tab instance.
 
-### `MS.toExportRow(post)`
-- **Parameters**: `post` (Object) - Normalized post object.
-- **Returns**: `Object` - Schema-compliant row.
-- **Description**: Drops internal adapter keys (like `_media` and `_shortcode`) and sets missing properties to the default `"Not Available"` string.
+### `MS.toExportRow(post, keys)`
+- **Parameters**:
+  - `post` (Object) - Normalized post or review object.
+  - `keys` (Array<string>, optional) - Specific schema keys to project. Defaults to `MS.SCHEMA_KEYS`.
+- **Returns**: `Object` - Schema-compliant row where missing or nullish fields default to `"Not Available"`.
 
-### `MS.toCSV(posts)`
-- **Parameters**: `posts` (Array<Object>) - Normalized posts list.
-- **Returns**: `string` - Raw CSV content.
-- **Description**: Compiles a fully-escaped CSV string mapped to `MS.SCHEMA_KEYS`. Quotes values containing commas, double-quotes, or newlines.
+### `MS.toCSV(posts, keys)`
+- **Parameters**:
+  - `posts` (Array<Object>) - Normalized posts or reviews list.
+  - `keys` (Array<string>, optional) - Column schema keys.
+- **Returns**: `string` - Raw RFC-4180-compliant CSV string with quotes around commas, double-quotes, and newlines.
 
 ### `MS.mediaManifest(result)`
 - **Parameters**: `result` (Object) - Return object of a platform adapter's `scrape` function.
 - **Returns**: `Array<{ url: string, shortcode: string, index: number, kind: "image"|"video" }>`
-- **Description**: Flattens nested/carousel attachments across all posts into a single manifest of downloadable items. Assigns zero-indexed positions (`index`) to preserve multi-image carousel orders.
+- **Description**: Flattens nested/carousel attachments across all posts into a single manifest of downloadable items. Assigns zero-indexed positions (`index`) to preserve carousel ordering.
 
 ---
 
 ## 2. Platform Adapter Interface
 
-Every scraper module placed under `extension/platforms/` must export an adapter object conforming to this interface:
+Every platform module placed under `extension/platforms/` attaches to `window.MS` and conforms to the following contract:
 
 ```typescript
 interface PlatformAdapter {
   // Returns true if this adapter handles the target host name.
   matches(host: string): boolean;
 
-  // Extracts the username identifier from the current tab URL.
-  // Returns null if the URL is not a profile feed page.
+  // Extracts the username or business identifier from the current tab URL.
+  // Returns null if the URL is not a recognized profile/place page.
   usernameFromUrl(url: string): string | null;
 
-  // Asynchronously paginates and extracts posts.
+  // Asynchronously paginates and extracts posts or reviews.
   scrape(
     opts: { username: string; maxPosts: number },
     onProgress: (progress: ScrapeProgress) => void,
@@ -72,102 +78,143 @@ interface PlatformAdapter {
 }
 
 interface ScrapeProgress {
-  collected: number;      // Count of normalized posts collected so far.
-  total: number | null;   // Total post count declared by profile header (if readable).
-  profile: string;        // Active profile username.
+  collected: number;      // Count of normalized items collected so far.
+  total: number | null;   // Declared total count (if readable from header/subtitle).
+  profile: string;        // Active profile username or business title.
 }
 
 interface ScrapeResult {
-  platform: string;       // e.g. "instagram" or "tiktok"
+  platform: "instagram" | "tiktok" | "google";
   profile: {
     username: string;
     full_name?: string;
     id?: string;
     is_private?: boolean;
     post_count: number;
+    [key: string]: any;
   };
-  posts: Array<NormalizedPost>;
+  posts: Array<NormalizedPost | NormalizedReview>;
+  schemaKeys?: Array<string>; // Specified when overriding MS.SCHEMA_KEYS (e.g. Google)
 }
 ```
 
-### Adapter Implementations
-
-#### Instagram (`platforms/instagram.js`)
-- **App ID**: `936619743392459` (Hardcoded header `X-IG-App-ID`).
-- **Internal Helper APIs**:
-  - `csrfToken()`: Extracts `csrftoken` from cookie storage.
-  - `headers()`: Merges token and App ID keys.
-  - `getJSON(url, attempt)`: Implements network retry logic. Handles rate limits (`429`) and server errors (`500+`) using exponential backoff with random jitter. Aborts immediately on auth codes (`401`, `403`).
-  - `resolveUser(username)`: Calls `/api/v1/users/web_profile_info/` to get user metadata.
-  - `feedPage(userId, maxId)`: Retrieves feed increments.
-
-#### TikTok (`platforms/tiktok.js`)
-- **Scraping Strategy**: Captures network logs rather than paging requests directly to prevent complex signature verification (`X-Bogus`/`msToken`).
-- **Internal Helper APIs**:
-  - `drainCaptured(seen, posts, maxPosts)`: Clears items from `MS.captureBuffer`, filters duplicates, and normalizes payloads.
-  - `scrape(opts, onProgress, shouldStop)`: Automates body scrolling to trigger TikTok's internal fetch routines. Ends when `idleRounds` exceeds 6 (meaning scroll-downs no longer fetch new posts).
-
 ---
 
-## 3. Network Interceptor (`inject.js`)
+## 3. Platform Adapter Implementations
 
-Injected directly into the MAIN-world context. Overrides browser networking APIs to capture XHR and Fetch calls silently.
+### A. Instagram Adapter (`platforms/instagram.js`)
+- **Host Matching**: Matches `instagram.com`.
+- **App ID Header**: `X-IG-App-ID: 936619743392459`.
+- **Key Methods**:
+  - `csrfToken()`: Reads `csrftoken` from `document.cookie`.
+  - `getJSON(url, attempt)`: Makes authenticated requests with exponential backoff on `429` / `500+` and immediate abort on `401` / `403`.
+  - `resolveUser(username)`: Retrieves profile metadata and user ID via `/api/v1/users/web_profile_info/?username=...`.
+  - `feedPage(userId, maxId)`: Retrieves feed increments from `/api/v1/feed/user/{userId}/?count=12`.
+  - `normalize(item)`: Extracts highest-resolution media candidates, carousel slides, captions, and hidden likes/comments counts.
 
-### Interception Patterns
-Overridden methods check request URLs against the regex `/(\/api\/v1\/feed\/user\/|\/graphql\/query|\/api\/post\/item_list|xdt_api__v1__feed)/i`.
+### B. TikTok Adapter (`platforms/tiktok.js`)
+- **Host Matching**: Matches `tiktok.com`.
+- **Key Methods**:
+  - `drainCaptured(seen, posts, maxPosts)`: Drains `MS.captureBuffer`, removes duplicates, and parses `item_list` API responses.
+  - `scrape(opts, onProgress, shouldStop)`: Automates window scrolling, monitors idle cycles (terminates if no new posts arrive after 6 consecutive scrolls), and returns normalized video and photo entries.
 
-- **`window.fetch` Override**: Clones the response stream using `.clone()`, reads raw text, parses it, and forwards JSON payloads.
-- **`XMLHttpRequest.prototype.send` Override**: Listens for the `load` event, checks internal URLs, and parses responses.
-- **Message Dispatch**:
+### C. Google Business Adapter (`platforms/google.js`)
+- **Host Matching**: Matches `google.com` and international Google domains (e.g., `google.gr`, `google.de`, `google.co.uk`).
+- **Feature ID (FID) Discovery**:
+  - `findFid()`: Locates the `0x...:0x...` identifier from Search knowledge panel elements (`[data-fid]`), Google Maps URLs (`!1s0x...:0x...`), or page HTML regex.
+  - `cidUrl(fid)`: Converts the second hexadecimal half of the FID to BigInt decimal notation to build canonical `https://www.google.com/maps?cid=...` links.
+- **Knowledge Panel Metadata Extraction**:
+  - `parseSubtitle()`: Extracts rating, total review count (via multi-language regex matching Greek, English, German, French, Spanish, Turkish, Russian, etc.), category, and price range.
+  - `attrText(key)`: Extracts business name, address, phone, hours, and official website.
+- **RPC Review Pagination**:
+  - `fetchReviewsRpc(fid, pageToken)`: Issues POST requests to `/_/SearchUi/data/batched/GetLocalBoqProxy` using Google's nested array format `f.req=[[[...]]]`.
+  - Strips Google's anti-XSS `)]}'` prefix and parses nested review arrays, review photos, timestamps, star ratings, translated texts, and owner responses.
+- **Markdown Report Generation**:
+  - `markdownReport(business, reviews)`: Generates a complete, publication-ready Markdown audit document containing business details, rating distributions, and structured review tables.
+- **`EXPORT_KEYS`**:
   ```javascript
-  window.postMessage({ __ms: "capture", url: String(url), body: parsedJSON }, window.location.origin);
+  [
+    "id", "Business Name", "Business Rating", "Business Review Count",
+    "Business Category", "Business Price Range", "Business Address",
+    "Business Phone", "Business Hours", "Business Website",
+    "Business Google Maps URL", "Review Author", "Review Author URL",
+    "Review Rating", "Review Date", "Review Date (relative)",
+    "Review Text", "Review Text (translated)", "Review Language",
+    "Review Likes", "Owner Reply", "Review Images"
+  ]
   ```
 
 ---
 
-## 4. Background Service Worker (`background.js`)
+## 4. Chrome Runtime Message Bus
 
-The background service worker implements download routines and updates dynamic referer headers.
+Multiscraper components communicate via `chrome.runtime.sendMessage` and `chrome.runtime.onMessage`:
 
-### Download Pipeline Methods
-
-- `downloadOne(file, folder)`: Invokes `chrome.downloads.download` with `saveAs: false` to suppress prompt windows.
-- `setTikTokReferer(on)`: Updates `chrome.declarativeNetRequest` dynamic rules.
-  - **Dynamic Rule ID**: `9001`
-  - **Rule Condition**: Matches domain patterns such as `tiktok.com`, `tiktokcdn.com`, etc.
-  - **Rule Action**: Modifies request headers to set `referer: https://www.tiktok.com/`. Crucial to prevent CDNs from rejecting requests with empty bodies.
+| Message `type` | Sender | Receiver | Payload | Description |
+| --- | --- | --- | --- | --- |
+| `detect` | Popup | Content Script | `{ type: "detect" }` | Returns `{ platform, username }` for the active tab. |
+| `scrape` | Popup | Content Script | `{ type: "scrape", username, maxPosts }` | Triggers scraping execution in the content script. |
+| `stop` | Popup | Content Script | `{ type: "stop" }` | Signals active scraper to halt immediately. |
+| `progress` | Content Script | Popup | `{ type: "progress", collected, total, profile }` | Emits live progress counters during scraping. |
+| `done` | Content Script | Popup / Storage | `{ type: "done", platform, profile, count }` | Notifies scrape completion and triggers storage save. |
+| `error` | Content Script | Popup | `{ type: "error", error: string }` | Reports fatal scraping error. |
+| `downloadMedia` | Popup | Background | `{ type: "downloadMedia", platform, files, folder }` | Starts batch background downloading via `chrome.downloads`. |
+| `mediaProgress` | Background / Content | Popup | `{ type: "mediaProgress", done, ok, fail, total }` | Live updates on files verified saved to disk. |
+| `saveDownload` | Content Script | Background | `{ type: "saveDownload", url, filename }` | Saves in-page fetched blob data URLs to disk. |
+| `tiktokDownload` | Popup | Content Script | `{ type: "tiktokDownload", files, folder }` | Triggers authenticated in-page video fetching for TikTok. |
 
 ---
 
-## 5. Storage Schema
+## 5. Background Service Worker & DeclarativeNetRequest (`background.js`)
 
-The extension persists runs in `chrome.storage.local` to survive popup closures.
+The background service worker executes media downloads and applies dynamic network header rules.
 
-### Keys Saved
+### Key Methods:
+- `downloadOne(file, folder)`: Invokes `chrome.downloads.download` with `saveAs: false` and `conflictAction: "uniquify"`.
+- `sanitizeFolder(s)`: Sanitizes user-supplied download folders, stripping illegal characters and preventing directory traversal (`..`).
+- `extFromUrl(url, kind)`: Determines file extension (`jpg`, `mp4`, `webp`, `png`, `mov`) from URL path or fallback `kind`.
+- `setTikTokReferer(on)`: Manages dynamic rule `9001` via `chrome.declarativeNetRequest.updateDynamicRules`:
+  - **Condition**: Request domains matching `tiktok.com`, `tiktokcdn.com`, `byteoversea.com`, `muscdn.com`.
+  - **Action**: Injects `Referer: https://www.tiktok.com/` (without `Origin`, which triggers TikTok CDN CORS rejection).
+
+---
+
+## 6. Network Interceptor (`inject.js`)
+
+Injected into the target page's **MAIN world** to intercept network calls that require browser-generated security tokens:
+
+- **Hooked APIs**: `window.fetch` and `XMLHttpRequest.prototype.send`.
+- **URL Filters**: Matches `/(\/api\/v1\/feed\/user\/|\/graphql\/query|\/api\/post\/item_list|xdt_api__v1__feed)/i`.
+- **Memory Safety**: Uses a private `WeakMap` (`xhrUrlMap`) for XHR URL tracking to prevent prototype pollution or object mutation.
+- **Dispatch**: Posts intercepted JSON data to the isolated world via `window.postMessage` restricted strictly to `window.location.origin`.
+
+---
+
+## 7. Storage Schema (`chrome.storage.local`)
 
 ```typescript
 interface StorageSchema {
-  // Saved on scrape completion
+  // Stored upon scrape completion
   lastResult?: {
-    platform: string;
+    platform: "instagram" | "tiktok" | "google";
     profile: { username: string; [key: string]: any };
     count: number;
-    rows: Array<object>; // Export-schema rows
-    media: Array<object>; // Media manifest files
-    savedAt: string; // ISO date
+    rows: Array<object>; // Export-compliant rows
+    media: Array<{ url: string; shortcode: string; index: number; kind: string }>;
+    savedAt: string;     // ISO timestamp
   };
 
-  // Saved on download completion or failure
+  // Stored upon media batch completion
   lastDownload?: {
-    ok: number;          // Successful count
-    failed: number;      // Failed count
-    failedFiles: Array<object>; // Files to display in "Retry"
+    ok: number;
+    failed: number;
+    failedFiles: Array<object>; // Items available for one-click retry
     folder: string;
     total: number;
     at: string;
   };
 
-  // Emitted dynamically to track live progress
+  // Stored dynamically during download execution
   mediaLive?: {
     done: number;
     ok: number;

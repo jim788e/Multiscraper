@@ -6,7 +6,7 @@
   "license": "MIT",
   "author": "Dimitrios Misios",
   "scripts": {
-    "test": "node tests/test-normalizer.js && node tests/test-download.js",
+    "test": "node tests/test-normalizer.js && node tests/test-download.js && node tests/test-google.js",
     "icons": "node tools/generate-icons.js"
   },
   "repository": {
