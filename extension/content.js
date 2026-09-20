@@ -75,7 +75,15 @@
             },
           });
           chrome.runtime
-            .sendMessage({ type: "done", platform: result.platform, profile: result.profile, count: result.posts.length })
+            .sendMessage({
+              type: "done",
+              platform: result.platform,
+              profile: result.profile,
+              count: result.posts.length,
+              // Set when the scrape ended early (e.g. rate-limited mid-paging)
+              // but still produced usable rows.
+              warning: result.warning || null,
+            })
             .catch(() => {});
           sendResponse({ ok: true, count: result.posts.length });
         })

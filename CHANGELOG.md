@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Instagram HTTP 429 handling** ([`extension/platforms/instagram.js`](file:///d:/dev/Multiscraper/extension/platforms/instagram.js)): a rate-limited `web_profile_info` lookup no longer burns a two-minute retry ladder and then repeats it on every fallback. Retries now honour `Retry-After`, a single session-wide cooldown is shared by all requests, and while throttled the profile-page HTML lookup runs before the equally throttled search API.
+- **Rate limits mid-run no longer discard the scrape**: if paging is throttled after the first page, the posts already collected are exported with a warning instead of failing the whole run.
+
+### Changed
+- **Stop** now interrupts a rate-limit wait instead of being ignored until the countdown ends; a user-initiated stop keeps the posts collected so far and is no longer shown as an error.
+- Scrape progress now carries a `status` string, so a rate-limit wait shows a countdown in the popup instead of a frozen "Starting…". Paging slows down after each 429.
+- Added [`tests/test-ratelimit.js`](file:///d:/dev/Multiscraper/tests/test-ratelimit.js) to the `npm test` suite, covering the 429 fallback chain, partial export, and status reporting on a virtual clock.
+
 ## [0.3.0] - 2026-08-15
 
 ### Added

@@ -129,10 +129,14 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "progress") {
     const pct = msg.total ? Math.min(99, Math.round((msg.collected / msg.total) * 100)) : null;
     $("bar").style.width = (pct != null ? pct : Math.min(95, 5 + msg.collected)) + "%";
-    setStatus("Collected " + msg.collected + (msg.total ? " / " + msg.total : "") + " posts…");
+    // An adapter-supplied status (rate-limit countdown, lookup retry) explains a
+    // wait that would otherwise look like a frozen "Starting…".
+    setStatus(
+      msg.status || "Collected " + msg.collected + (msg.total ? " / " + msg.total : "") + " posts…"
+    );
   } else if (msg.type === "done") {
     $("bar").style.width = "100%";
-    setStatus("Done — " + msg.count + " posts.");
+    setStatus(msg.warning ? "Stopped early — " + msg.warning : "Done — " + msg.count + " posts.", !!msg.warning);
     resetButtons();
     chrome.storage.local.get("lastResult").then(({ lastResult: r }) => {
       lastResult = r;
@@ -143,7 +147,8 @@ chrome.runtime.onMessage.addListener((msg) => {
     $("mediaBar").style.width = pct + "%";
     setMediaStatus("Saved " + msg.done + " / " + msg.total + (msg.fail ? " · " + msg.fail + " failed" : "") + "…");
   } else if (msg.type === "error") {
-    setStatus(msg.error, true);
+    // A stop the user asked for isn't a failure — don't paint it red.
+    setStatus(msg.error, msg.error !== "Stopped.");
     resetButtons();
     $("progress").classList.add("hidden");
   }

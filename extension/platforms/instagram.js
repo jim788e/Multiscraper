@@ -19,60 +19,145 @@
     return h;
   }
 
+  // Progress reporter for the scrape in flight. Waiting on a rate limit can take
+  // minutes; without this the popup would sit on "Starting…" with no explanation.
+  let report = () => {};
+
+  // Stop button state for the scrape in flight. A rate-limit cooldown can be
+  // minutes long, so every wait loop polls this instead of ignoring the user.
+  let stopped = () => false;
+
+  function stopError() {
+    const e = new Error("Stopped.");
+    e.stopped = true;
+    return e;
+  }
+
+  // A 429 from instagram.com applies to the browser session, not to the single
+  // request that tripped it, so every other endpoint (search, feed, the profile
+  // HTML) is throttled too. Remember when we may talk to IG again and make all
+  // callers honour it instead of hammering their way through the fallback chain.
+  let cooldownUntil = 0;
+
   // Exponential backoff with jitter; longer waits when actively rate-limited.
   function backoff(attempt, rateLimited) {
     const base = rateLimited ? 5000 : 700;
     return Math.min(30000, base * Math.pow(2, attempt)) + Math.random() * 600;
   }
 
+  // Instagram sends Retry-After on some 429s; obeying it beats guessing.
+  function retryAfterMs(res) {
+    let raw = "";
+    try {
+      raw = res.headers.get("Retry-After") || "";
+    } catch (_) {}
+    if (!raw) return 0;
+    const secs = Number(raw);
+    if (Number.isFinite(secs) && secs > 0) return Math.min(secs * 1000, 300000);
+    const at = Date.parse(raw);
+    return Number.isFinite(at) ? Math.min(Math.max(at - Date.now(), 0), 300000) : 0;
+  }
+
+  // Sleep while ticking the remaining seconds into the popup status line.
+  async function waitWithStatus(ms, why) {
+    const end = Date.now() + ms;
+    for (let left = end - Date.now(); left > 0; left = end - Date.now()) {
+      if (stopped()) throw stopError();
+      report(why + " — retrying in " + Math.ceil(left / 1000) + "s…");
+      await MS.sleep(Math.min(1000, left));
+    }
+  }
+
+  // Each 429 also slows the paging loop down: IG hands out the next throttle
+  // faster if we go straight back to the previous rhythm.
+  let rateLimitHits = 0;
+
+  function noteRateLimit(ms) {
+    rateLimitHits++;
+    cooldownUntil = Math.max(cooldownUntil, Date.now() + ms);
+  }
+
+  function pageDelay() {
+    return (800 + Math.random() * 700) * Math.min(4, 1 + rateLimitHits);
+  }
+
+  async function awaitCooldown() {
+    const left = cooldownUntil - Date.now();
+    if (left > 0) await waitWithStatus(left, "Instagram is rate-limiting");
+  }
+
+  function rateLimitError() {
+    const e = new Error(
+      "Instagram is rate-limiting this browser (HTTP 429). Wait a few minutes, close other Instagram tabs, then resume."
+    );
+    e.rateLimited = true;
+    return e;
+  }
+
   // Fetch JSON with retries. Auth failures (401/403) abort immediately with a
   // clear message; rate limits (429) and server/network errors back off and
   // retry so a long scrape survives transient hiccups instead of dying.
-  async function getJSON(url, attempt = 0) {
-    let res;
-    try {
-      res = await fetch(url, { headers: headers(), credentials: "include" });
-    } catch (e) {
-      if (attempt < 4) {
-        await MS.sleep(backoff(attempt));
-        return getJSON(url, attempt + 1);
-      }
-      throw new Error("Network error contacting Instagram — check your connection and try again.");
-    }
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(
-        "Instagram returned " + res.status + " — log in on instagram.com, and make sure you can view this profile (private accounts require you to follow them)."
-      );
-    }
-    if (res.status === 429 || res.status >= 500) {
-      if (attempt < 5) {
-        await MS.sleep(backoff(attempt, res.status === 429));
-        return getJSON(url, attempt + 1);
-      }
-      throw new Error("Instagram is rate-limiting (HTTP " + res.status + "). Wait a few minutes, then resume.");
-    }
-    if (!res.ok) {
-      // Surface Instagram's own error message — a bare status code hides
-      // server-side breakage (e.g. deleted schemas) from the user.
-      let detail = "";
+  // `maxRetries` is tunable because it is not worth spending a two-minute retry
+  // ladder on a call we have a working fallback for.
+  async function getJSON(url, opts) {
+    const maxRetries = opts && opts.maxRetries != null ? opts.maxRetries : 5;
+    for (let attempt = 0; ; attempt++) {
+      await awaitCooldown();
+      let res;
       try {
-        const body = await res.text();
-        const j = JSON.parse(body);
-        detail = j && j.message ? " — " + j.message : "";
-      } catch (_) {}
-      throw new Error("Instagram request failed: HTTP " + res.status + detail);
+        res = await fetch(url, { headers: headers(), credentials: "include" });
+      } catch (e) {
+        if (attempt < Math.min(maxRetries, 4)) {
+          await waitWithStatus(backoff(attempt), "Network hiccup");
+          continue;
+        }
+        throw new Error("Network error contacting Instagram — check your connection and try again.");
+      }
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(
+          "Instagram returned " + res.status + " — log in on instagram.com, and make sure you can view this profile (private accounts require you to follow them)."
+        );
+      }
+      if (res.status === 429) {
+        const wait = retryAfterMs(res) || backoff(attempt, true);
+        noteRateLimit(wait);
+        if (attempt < maxRetries) {
+          await awaitCooldown();
+          continue;
+        }
+        throw rateLimitError();
+      }
+      if (res.status >= 500) {
+        if (attempt < maxRetries) {
+          await waitWithStatus(backoff(attempt), "Instagram server error (HTTP " + res.status + ")");
+          continue;
+        }
+        throw new Error("Instagram is failing (HTTP " + res.status + "). Wait a few minutes, then resume.");
+      }
+      if (!res.ok) {
+        // Surface Instagram's own error message — a bare status code hides
+        // server-side breakage (e.g. deleted schemas) from the user.
+        let detail = "";
+        try {
+          const body = await res.text();
+          const j = JSON.parse(body);
+          detail = j && j.message ? " — " + j.message : "";
+        } catch (_) {}
+        throw new Error("Instagram request failed: HTTP " + res.status + detail);
+      }
+      return res.json();
     }
-    return res.json();
   }
 
   // Primary lookup. Instagram intermittently breaks this endpoint server-side
-  // (e.g. the 2026 "ig_business_category_subvertical has been deleted" 400s),
-  // so callers must be prepared to fall back to resolveUserFallback().
+  // (e.g. the 2026 "ig_business_category_subvertical has been deleted" 400s) and
+  // rate-limits it harder than anything else, so callers must be prepared to
+  // fall back. Two retries, not five: the fallbacks are cheaper than the ladder.
   async function resolveUserProfileInfo(username) {
     const url =
       "https://www.instagram.com/api/v1/users/web_profile_info/?username=" +
       encodeURIComponent(username);
-    const j = await getJSON(url);
+    const j = await getJSON(url, { maxRetries: 2 });
     const user = j && j.data && j.data.user;
     if (!user) throw new Error('Profile "' + username + '" not found.');
     return user;
@@ -84,7 +169,7 @@
     const url =
       "https://www.instagram.com/api/v1/web/search/topsearch/?query=" +
       encodeURIComponent(username);
-    const j = await getJSON(url);
+    const j = await getJSON(url, { maxRetries: 1 });
     const hit = (j.users || []).find(
       (u) => u.user && u.user.username.toLowerCase() === username.toLowerCase()
     );
@@ -92,10 +177,17 @@
   }
 
   // Fallback 2: the profile page HTML embeds the user id ("profilePage_<id>").
+  // It is a plain page load rather than an /api/ call, so it is the one lookup
+  // that often still answers while the API endpoints are throttled.
   async function resolveUserViaHtml(username) {
+    await awaitCooldown();
     const res = await fetch("https://www.instagram.com/" + encodeURIComponent(username) + "/", {
       credentials: "include",
     });
+    if (res.status === 429) {
+      noteRateLimit(retryAfterMs(res) || 30000);
+      return null;
+    }
     if (!res.ok) return null;
     const html = await res.text();
     const m = html.match(/profilePage_(\d+)/) || html.match(/"profile_id"\s*:\s*"(\d+)"/);
@@ -103,20 +195,28 @@
   }
 
   async function resolveUser(username) {
+    report("Looking up @" + username + "…");
     let primaryErr;
     try {
       return await resolveUserProfileInfo(username);
     } catch (e) {
+      if (e.stopped) throw e; // Stop pressed during a wait — don't start over
       primaryErr = e;
     }
+    // When we are throttled the search API will just hand us another 429, so try
+    // the profile HTML first; otherwise search is the more reliable of the two.
+    const order = primaryErr.rateLimited
+      ? [resolveUserViaHtml, resolveUserViaSearch]
+      : [resolveUserViaSearch, resolveUserViaHtml];
     let user = null;
-    try {
-      user = await resolveUserViaSearch(username);
-    } catch (_) {}
-    if (!user) {
+    for (const fn of order) {
+      if (user) break;
+      report("Retrying profile lookup for @" + username + "…");
       try {
-        user = await resolveUserViaHtml(username);
-      } catch (_) {}
+        user = await fn(username);
+      } catch (e) {
+        if (e.stopped) throw e;
+      }
     }
     if (!user) throw primaryErr;
     // Normalize the leaner fallback shape to what scrape() expects.
@@ -198,48 +298,75 @@
   }
 
   async function scrape(opts, onProgress, shouldStop) {
-    const user = await resolveUser(opts.username);
+    let user = null;
+    const total = () =>
+      user && user.edge_owner_to_timeline_media?.count != null
+        ? user.edge_owner_to_timeline_media.count
+        : null;
     const posts = [];
     const seen = new Set();
     let maxId = null;
+    let warning = null;
 
-    onProgress({ collected: 0, total: user.edge_owner_to_timeline_media?.count ?? null, profile: user.username });
+    // Route the adapter's status lines (rate-limit countdowns, lookup retries)
+    // into the popup so a long wait never looks like a hang.
+    report = (status) =>
+      onProgress({ collected: posts.length, total: total(), profile: user ? user.username : opts.username, status });
+    stopped = shouldStop;
 
-    do {
-      if (shouldStop()) break;
-      const data = await feedPage(user.id, maxId);
-      const items = data.items || [];
-      for (const it of items) {
-        const n = normalize(it);
-        if (!seen.has(n.id)) {
-          seen.add(n.id);
-          posts.push(n);
+    try {
+      user = await resolveUser(opts.username);
+
+      onProgress({ collected: 0, total: total(), profile: user.username });
+
+      do {
+        if (shouldStop()) break;
+        let data;
+        try {
+          data = await feedPage(user.id, maxId);
+        } catch (e) {
+          // Losing an hour of paging to one 429 helps nobody: keep what we have,
+          // tell the user why it stopped, and let them resume later. Pressing
+          // Stop during a wait lands here too, and keeps the posts as well.
+          if (!posts.length) throw e;
+          if (!e.stopped) {
+            warning = String(e.message || e) + " Exported the " + posts.length + " posts collected so far.";
+          }
+          break;
         }
-      }
-      onProgress({
-        collected: posts.length,
-        total: user.edge_owner_to_timeline_media?.count ?? null,
-        profile: user.username,
-      });
+        const items = data.items || [];
+        for (const it of items) {
+          const n = normalize(it);
+          if (!seen.has(n.id)) {
+            seen.add(n.id);
+            posts.push(n);
+          }
+        }
+        onProgress({ collected: posts.length, total: total(), profile: user.username });
 
-      if (opts.maxPosts && posts.length >= opts.maxPosts) break;
-      maxId = data.more_available && data.next_max_id ? data.next_max_id : null;
-      if (maxId) await MS.sleep(800 + Math.random() * 700); // be gentle; avoid rate limits
-    } while (maxId);
+        if (opts.maxPosts && posts.length >= opts.maxPosts) break;
+        maxId = data.more_available && data.next_max_id ? data.next_max_id : null;
+        if (maxId) await MS.sleep(pageDelay()); // be gentle; avoid rate limits
+      } while (maxId);
 
-    if (opts.maxPosts && posts.length > opts.maxPosts) posts.length = opts.maxPosts;
+      if (opts.maxPosts && posts.length > opts.maxPosts) posts.length = opts.maxPosts;
 
-    return {
-      platform: "instagram",
-      profile: {
-        username: user.username,
-        full_name: user.full_name,
-        id: user.id,
-        is_private: user.is_private,
-        post_count: user.edge_owner_to_timeline_media?.count ?? posts.length,
-      },
-      posts,
-    };
+      return {
+        platform: "instagram",
+        warning,
+        profile: {
+          username: user.username,
+          full_name: user.full_name,
+          id: user.id,
+          is_private: user.is_private,
+          post_count: total() ?? posts.length,
+        },
+        posts,
+      };
+    } finally {
+      report = () => {};
+      stopped = () => false;
+    }
   }
 
   MS.instagram = {
