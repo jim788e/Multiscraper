@@ -57,7 +57,7 @@ Multiscraper runs **inside your active, logged-in browser tab**:
 1. Log in to `instagram.com` and open any profile (e.g. `https://www.instagram.com/username/`).
 2. Click the Multiscraper icon. The popup detects the username.
 3. Set **Max posts** (`0` = entire history, or a specific limit like `100`).
-4. Click **Scrape profile**. Multiscraper paginates the feed with rate-limit jitter (800–1500ms).
+4. Click **Scrape profile**. On Instagram and TikTok the profile page is auto-scrolled and its own feed responses are harvested (1200–1800ms between scrolls); the tab must be showing the profile you are exporting.
 
 ### 3.2 Scraping TikTok
 1. Log in to `tiktok.com` and open a creator's profile (`https://www.tiktok.com/@username`).

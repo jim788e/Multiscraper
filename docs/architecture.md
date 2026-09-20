@@ -62,32 +62,37 @@ graph TD
 
 ## 2. Scraping Flow Diagrams
 
-### A. Instagram Direct API Pagination
-Instagram feeds are extracted using direct, authenticated web API requests with exponential backoff.
+### A. Instagram Capture-and-Scroll Loop
+Instagram posts are harvested from the profile page's own GraphQL responses while auto-scrolling.
+
+> **Why not direct API calls?** Until 0.3.2 this adapter called Instagram's web API directly. As of September 2026 those endpoints are blocked for extension-originated calls: `/api/v1/users/web_profile_info/` answers **429** on the very first request, and `/api/v1/feed/user/{id}/` answers **200 with an HTML block page** instead of JSON. Verified from inside a live, logged-in tab — it is not a rate limit that waiting clears. The profile page itself pages posts with `POST /graphql/query` (`PolarisProfilePostsTabContentQuery_connection`), and replaying that by hand returns **403** without the full set of session parameters the page sends. So Instagram now uses the same strategy as TikTok: never send our own request, read the page's.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant P as Popup (popup.js)
     participant C as Content (content.js)
-    participant IG as Instagram Web API
+    participant M as Interceptor (inject.js, MAIN world)
+    participant IG as Instagram page
 
     P->>C: chrome.tabs.sendMessage("scrape", {username, maxPosts})
-    C->>IG: fetch(/api/v1/users/web_profile_info/?username=...)
-    IG-->>C: Profile details + userId
-    Note over C: Resolve userId & initialize loop
+    C->>C: Verify the tab is showing that profile (else abort with guidance)
+    C->>M: MS.ensureInterceptor() — patch fetch + XHR
 
-    loop Until maxPosts reached OR no more pages
-        C->>IG: fetch(/api/v1/feed/user/{userId}/?count=12&max_id=...)
-        IG-->>C: JSON list of post objects
-        C->>C: Normalize records into MS.SCHEMA_KEYS
+    loop Until 6 idle rounds OR maxPosts reached
+        C->>IG: window.scrollTo(0, document.body.scrollHeight)
+        IG->>IG: POST /graphql/query (its own session, its own tokens)
+        IG-->>M: GraphQL connection: edges[].node
+        M-->>C: postMessage({__ms:"capture"}) → MS.captureBuffer
+        C->>C: Drain buffer, normalize into MS.SCHEMA_KEYS, drop duplicates
         C->>P: chrome.runtime.sendMessage("progress", {collected, total})
-        Note over C: Wait 800-1500ms (rate-limit backoff jitter)
     end
 
     C->>C: Save export rows to chrome.storage.local
     C->>P: chrome.runtime.sendMessage("done", {count})
 ```
+
+The GraphQL connection is located by **shape** (an object with an `edges` array) rather than by name, because Instagram renames it regularly. Its `node` objects use the same field layout as the old v1 feed items (`code`, `like_count`, `comment_count`, `media_type`, `image_versions2`, `carousel_media`), so `normalize()` is unchanged. If nothing is captured at all, the adapter falls back to the legacy API path, which reports its own 429 / block-page failure clearly.
 
 ---
 

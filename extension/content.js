@@ -97,8 +97,10 @@
     }
   });
 
-  // Prime the interceptor on TikTok so early item_list responses aren't missed.
-  if (/tiktok\.com$/.test(location.hostname.replace(/^www\./, ""))) MS.ensureInterceptor();
+  // Prime the interceptor so the page's first feed responses aren't missed:
+  // TikTok's item_list, and Instagram's /graphql/query profile pages (which are
+  // now the only way to read IG posts — its /api/v1 endpoints are blocked).
+  if (/(tiktok|instagram)\.com$/.test(location.hostname.replace(/^www\./, ""))) MS.ensureInterceptor();
 
   // TikTok media download, driven from the page context. TikTok video URLs are
   // signed and gated by the tt_chain_token session cookie, which only a request

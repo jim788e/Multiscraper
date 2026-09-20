@@ -1,4 +1,7 @@
-// Offline verification of the Instagram adapter's HTTP 429 handling: the run the
+// Offline verification of the Instagram adapter's LEGACY /api/v1 path and its
+// HTTP 429 handling. That path is now a fallback (see test-capture.js for the
+// scroll-and-capture path that actually runs), but it still has to fail
+// gracefully. Originally written for the bug where: the run the
 // user hit, where web_profile_info answered "Too Many Requests" over and over.
 // Asserts we stop hammering the throttled endpoint, fall back to the profile
 // HTML, keep reporting status while waiting, stay responsive to Stop, and still
@@ -98,7 +101,7 @@ function assert(cond, label) {
   const MS = loadAdapter(throttledFetch(calls));
   const progress = [];
   const started = clock;
-  const result = await MS.instagram.scrape(
+  const result = await MS.instagram._test.scrapeViaApi(
     { username: "bravozaxaroplasteio", maxPosts: 0 },
     (p) => progress.push(p),
     () => false
@@ -129,7 +132,7 @@ function assert(cond, label) {
   const MS2 = loadAdapter(throttledFetch(calls2));
   let stop = false;
   const progress2 = [];
-  const stopped = await MS2.instagram.scrape(
+  const stopped = await MS2.instagram._test.scrapeViaApi(
     { username: "bravozaxaroplasteio", maxPosts: 0 },
     (p) => {
       progress2.push(p);
@@ -156,8 +159,8 @@ function assert(cond, label) {
     return res(200, "<html>x profilePage_76199453722 y</html>");
   });
   let blockErr = null;
-  const blocked = await MS3.instagram
-    .scrape({ username: "bravozaxaroplasteio", maxPosts: 0 }, () => {}, () => false)
+  const blocked = await MS3.instagram._test
+    .scrapeViaApi({ username: "bravozaxaroplasteio", maxPosts: 0 }, () => {}, () => false)
     .catch((e) => {
       blockErr = e;
       return null;
@@ -177,8 +180,8 @@ function assert(cond, label) {
     return res(200, LOGIN_PAGE);
   });
   let loginErr = null;
-  await MS4.instagram
-    .scrape({ username: "bravozaxaroplasteio", maxPosts: 0 }, () => {}, () => false)
+  await MS4.instagram._test
+    .scrapeViaApi({ username: "bravozaxaroplasteio", maxPosts: 0 }, () => {}, () => false)
     .catch((e) => (loginErr = e));
   assert(loginErr && /signed in/i.test(loginErr.message), "a login page is explained, not dumped as a parse error");
   assert(calls4.length <= 2, "a login wall aborts instead of retrying the fallback chain (was " + calls4.length + " calls)");
@@ -186,8 +189,8 @@ function assert(cond, label) {
   // --- Scenario 5: the security checkpoint ---
   const MS5 = loadAdapter(() => res(200, '<!DOCTYPE html><html><body>window.location="/challenge/"</body></html>'));
   let challengeErr = null;
-  await MS5.instagram
-    .scrape({ username: "bravozaxaroplasteio", maxPosts: 0 }, () => {}, () => false)
+  await MS5.instagram._test
+    .scrapeViaApi({ username: "bravozaxaroplasteio", maxPosts: 0 }, () => {}, () => false)
     .catch((e) => (challengeErr = e));
   assert(challengeErr && /checkpoint/i.test(challengeErr.message), "a checkpoint page tells the user to clear the prompt");
 

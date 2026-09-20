@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-21
+
+### Changed
+- **Instagram now uses scroll-and-capture instead of direct API calls** ([`extension/platforms/instagram.js`](file:///d:/dev/Multiscraper/extension/platforms/instagram.js)). Instagram blocked the `/api/v1` endpoints this adapter was built on — verified from inside a live logged-in tab: `web_profile_info` answers **429** on the very first call, and `feed/user` answers **200 with an HTML block page**. No amount of backoff fixes that. The profile page itself pages posts with `POST /graphql/query`, and replaying that by hand returns **403** without the page's full session parameters. So Instagram now does what TikTok already did: auto-scroll the profile and harvest the page's own responses through [`inject.js`](file:///d:/dev/Multiscraper/extension/inject.js). The extension sends no request of its own, so there is nothing to fingerprint or throttle.
+  - The GraphQL connection is matched by **shape**, not by name (`xdt_api__v1__feed__user_timeline_graphql_connection`), because Instagram renames it regularly.
+  - `normalize()` is unchanged: GraphQL nodes use the same field layout as the old v1 feed items.
+  - Posts belonging to another account (suggested-post connections on the same page) are dropped.
+  - The scrape aborts with guidance if the tab is not showing the profile being exported, instead of silently capturing the wrong account.
+  - The legacy API path is kept as `scrapeViaApi` and still runs if nothing is captured.
+- The interceptor is now primed on instagram.com as well as tiktok.com, so the page's first responses aren't missed.
+
+### Added
+- [`tests/test-capture.js`](file:///d:/dev/Multiscraper/tests/test-capture.js): covers the capture path end to end against a real captured GraphQL shape — pagination, deduplication, `maxPosts`, Stop, wrong-tab refusal, shape-based connection matching, and stray-account filtering. Its stub `fetch` rejects, so the test fails if the adapter ever calls Instagram directly again.
+
 ## [0.3.2] - 2026-09-21
 
 ### Fixed

@@ -111,7 +111,10 @@ interface ScrapeResult {
   - `resolveUser(username)`: Retrieves profile metadata and user ID via `/api/v1/users/web_profile_info/?username=...`, falling back to `/api/v1/web/search/topsearch/` and the profile page HTML. While rate-limited the HTML lookup is tried first, since it is not an `/api/` call and is usually still served.
   - `htmlBlockKind(text)`: Classifies an HTML body served in place of JSON as `challenge`, `login`, or `block` (the throttling interstitial), so a soft block is retried and an auth wall is explained rather than surfacing as a JSON parse error.
   - `report(status)`: Per-scrape hook that pushes human-readable waiting states (rate-limit countdown, lookup retry) into the popup progress message.
-  - `feedPage(userId, maxId)`: Retrieves feed increments from `/api/v1/feed/user/{userId}/?count=12`.
+  - `scrape(opts, onProgress, shouldStop)`: **Primary path.** Verifies the tab is showing the requested profile, then scroll-and-capture: auto-scrolls and harvests the page's own `/graphql/query` responses via `inject.js`. Falls back to `scrapeViaApi` only if nothing is captured.
+  - `itemsFromCapture(body)`: Extracts media nodes from a captured response. Finds the GraphQL connection by shape (any object with an `edges` array) rather than by name, since Instagram renames it regularly; also accepts the legacy `items` array.
+  - `scrapeViaApi(opts, onProgress, shouldStop)`: Legacy `/api/v1` path, kept as a fallback. Blocked by Instagram as of 2026-09 (see `docs/architecture.md`).
+  - `feedPage(userId, maxId)`: Retrieves feed increments from `/api/v1/feed/user/{userId}/?count=12` (legacy).
   - `normalize(item)`: Extracts highest-resolution media candidates, carousel slides, captions, and hidden likes/comments counts.
 
 ### B. TikTok Adapter (`platforms/tiktok.js`)
