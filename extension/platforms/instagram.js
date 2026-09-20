@@ -334,7 +334,10 @@
     };
   }
 
-  async function scrape(opts, onProgress, shouldStop) {
+  // Legacy path: IG's own /api/v1 endpoints. Kept as a fallback in case they
+  // come back, but as of 2026-09 web_profile_info answers 429 and feed/user
+  // serves an HTML block page, so scrapeViaCapture() is what actually runs.
+  async function scrapeViaApi(opts, onProgress, shouldStop) {
     let user = null;
     const total = () =>
       user && user.edge_owner_to_timeline_media?.count != null
@@ -406,21 +409,161 @@
     }
   }
 
+
+  // --- Scroll-and-capture (primary path) ------------------------------------
+  //
+  // Instagram retired the /api/v1 endpoints this adapter was built on: as of
+  // 2026-09 web_profile_info answers 429 on the very first call and feed/user
+  // returns an HTML block page with status 200. Verified from inside a live
+  // logged-in tab, so it is not a rate limit we can wait out.
+  //
+  // The profile page itself pages posts with POST /graphql/query
+  // (PolarisProfilePostsTabContentQuery_connection) over XHR. Replaying that by
+  // hand needs the full set of session params the page sends — a hand-built
+  // request with fb_dtsg + lsd gets 403. So we do what the TikTok adapter does:
+  // let the page make its own requests while we scroll, and harvest the replies
+  // that inject.js captures. Nothing we send can be fingerprinted, because we
+  // send nothing.
+
+  // Pull media items out of a captured response. The GraphQL connection is
+  // matched on shape rather than on its name (`xdt_api__v1__feed__user_
+  // timeline_graphql_connection`), because Instagram renames these regularly.
+  function itemsFromCapture(body) {
+    if (!body) return [];
+    if (Array.isArray(body.items)) return body.items; // legacy /api/v1 shape
+    if (!body.data) return [];
+    const out = [];
+    for (const value of Object.values(body.data)) {
+      if (value && Array.isArray(value.edges)) {
+        for (const edge of value.edges) {
+          const node = edge && edge.node;
+          // A profile page also loads connections that aren't posts (suggested
+          // accounts, reels trays); keep only things shaped like media.
+          if (node && (node.code || node.image_versions2 || node.media_type != null)) out.push(node);
+        }
+      }
+    }
+    return out;
+  }
+
+  function drainCaptured(seen, posts, opts) {
+    let added = 0;
+    for (const cap of MS.captureBuffer.splice(0)) {
+      for (const item of itemsFromCapture(cap.body)) {
+        const n = normalize(item);
+        // Guard against posts from someone else's connection on the same page.
+        const author = (n["Post Author"] || "").toLowerCase();
+        if (opts.username && author && author !== opts.username.toLowerCase()) continue;
+        if (!n.id || seen.has(n.id)) continue;
+        seen.add(n.id);
+        posts.push(n);
+        added++;
+        if (opts.maxPosts && posts.length >= opts.maxPosts) return added;
+      }
+    }
+    return added;
+  }
+
+  // /username/ from a profile URL, ignoring reserved first-level paths. Used
+  // both to label the popup and to check that the tab is showing the profile
+  // we are about to capture.
+  const RESERVED = new Set(["p", "reel", "reels", "explore", "stories", "direct", "accounts", "tv"]);
+  function usernameFromUrl(url) {
+    try {
+      const u = new URL(url);
+      if (!/instagram\.com$/.test(u.hostname.replace(/^www\./, ""))) return null;
+      const seg = u.pathname.split("/").filter(Boolean)[0];
+      return seg && !RESERVED.has(seg) ? seg : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Total post count, so the progress bar has something to aim at. It sits in
+  // the page's preloaded JSON; absent is fine.
+  function postCountFromPage() {
+    try {
+      for (const el of document.querySelectorAll('script[type="application/json"]')) {
+        const m = (el.textContent || "").match(/"media_count"\s*:\s*(\d+)/);
+        if (m) return Number(m[1]);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async function scrapeViaCapture(opts, onProgress, shouldStop) {
+    MS.ensureInterceptor();
+    MS.flushBuffer();
+
+    const posts = [];
+    const seen = new Set();
+    const total = postCountFromPage();
+    let idleRounds = 0;
+
+    const tick = (status) =>
+      onProgress({ collected: posts.length, total, profile: opts.username, status });
+
+    tick("Reading posts from the page…");
+
+    // Scroll to make Instagram request the next page; harvest what comes back.
+    // Six idle rounds is the same terminator the TikTok adapter uses.
+    while (idleRounds < 6) {
+      if (shouldStop()) break;
+      window.scrollTo(0, document.body.scrollHeight);
+      await MS.sleep(1200 + Math.random() * 600);
+      const before = posts.length;
+      drainCaptured(seen, posts, opts);
+      tick();
+      if (opts.maxPosts && posts.length >= opts.maxPosts) break;
+      idleRounds = posts.length === before ? idleRounds + 1 : 0;
+    }
+    drainCaptured(seen, posts, opts);
+    if (opts.maxPosts && posts.length > opts.maxPosts) posts.length = opts.maxPosts;
+
+    const first = posts[0] || {};
+    return {
+      platform: "instagram",
+      profile: {
+        username: opts.username || first["Post Author"] || "",
+        full_name: first["Post Author Full Name"] || "",
+        post_count: total != null ? total : posts.length,
+      },
+      posts,
+    };
+  }
+
+  async function scrape(opts, onProgress, shouldStop) {
+    const onPage = usernameFromUrl(location.href);
+    const wanted = (opts.username || "").toLowerCase();
+
+    // Capture reads whatever profile the tab is showing, so a mismatch would
+    // quietly export the wrong account's posts. Say so instead.
+    if (!onPage) {
+      throw new Error(
+        "Open the profile page you want to export (instagram.com/<username>/) and run the scrape from there."
+      );
+    }
+    if (wanted && wanted !== onPage.toLowerCase()) {
+      throw new Error(
+        'This tab is showing @' + onPage + ', not @' + opts.username + ". Open @" + opts.username + "'s profile and try again."
+      );
+    }
+
+    const result = await scrapeViaCapture({ ...opts, username: onPage }, onProgress, shouldStop);
+    if (result.posts.length || shouldStop()) return result;
+
+    // Nothing captured — the page made no post requests we could read. Fall
+    // back to the old API path, which still reports its own failure clearly.
+    onProgress({ collected: 0, total: null, profile: opts.username, status: "Nothing captured — trying Instagram's API…" });
+    return scrapeViaApi({ ...opts, username: onPage }, onProgress, shouldStop);
+  }
+
   MS.instagram = {
     matches: (host) => /(^|\.)instagram\.com$/.test(host),
-    // /username/ from a profile URL, ignoring reserved first-level paths.
-    usernameFromUrl: (url) => {
-      try {
-        const u = new URL(url);
-        if (!/instagram\.com$/.test(u.hostname.replace(/^www\./, ""))) return null;
-        const seg = u.pathname.split("/").filter(Boolean)[0];
-        const reserved = new Set(["p", "reel", "reels", "explore", "stories", "direct", "accounts", "tv"]);
-        return seg && !reserved.has(seg) ? seg : null;
-      } catch (_) {
-        return null;
-      }
-    },
+    usernameFromUrl,
     scrape,
-    _test: { normalize, mediaList }, // exposed for the offline normalizer test
+    // Exposed for the offline tests: the capture parser, and the legacy API
+    // path, whose 429 / HTML-block handling is verified on its own.
+    _test: { normalize, mediaList, itemsFromCapture, scrapeViaApi },
   };
 })();
