@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.1] - 2026-09-21
 
+### Added
+- Version number in the bottom-left corner of the popup, read from the manifest — makes it obvious which build is loaded after a reload, and gives bug reports something to quote.
+
 ### Fixed
 - **Instagram HTTP 429 handling** ([`extension/platforms/instagram.js`](file:///d:/dev/Multiscraper/extension/platforms/instagram.js)): a rate-limited `web_profile_info` lookup no longer burns a two-minute retry ladder and then repeats it on every fallback. Retries now honour `Retry-After`, a single session-wide cooldown is shared by all requests, and while throttled the profile-page HTML lookup runs before the equally throttled search API.
 - **Rate limits mid-run no longer discard the scrape**: if paging is throttled after the first page, the posts already collected are exported with a warning instead of failing the whole run.

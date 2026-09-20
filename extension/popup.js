@@ -388,4 +388,8 @@ $("retry").addEventListener("click", () => {
   if (lastFailedFiles.length) runDownload(lastFailedFiles);
 });
 
+// Build number in the corner, straight from the manifest — so a bug report can
+// say which version produced it, and a reload is easy to confirm.
+$("version").textContent = "v" + chrome.runtime.getManifest().version;
+
 init();
