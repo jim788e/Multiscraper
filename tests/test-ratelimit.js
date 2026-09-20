@@ -143,6 +143,54 @@ function assert(cond, label) {
   assert(stopped.posts.length === 1, "stopping mid-wait still returns the collected posts");
   assert(!stopped.warning, "a user-initiated stop is not reported as a failure");
 
+  // --- Scenario 3: HTTP 200 carrying an HTML soft-block instead of JSON ---
+  // This is the `Unexpected token '<', "<!DOCTYPE "...` the user hit: IG serves
+  // its own page rather than a payload once it decides to block the session.
+  const SOFT_BLOCK = '<!DOCTYPE html><html><head><title>Instagram</title></head><body>please wait</body></html>';
+  const calls3 = [];
+  const MS3 = loadAdapter((url) => {
+    const u = String(url);
+    calls3.push(u);
+    if (u.includes("/feed/user/")) return u.includes("max_id=page2") ? res(200, SOFT_BLOCK) : res(200, FEED_PAGE);
+    if (u.includes("web_profile_info")) return res(200, { data: { user: { id: "76199453722", username: "bravozaxaroplasteio", full_name: "Bravo", is_private: false } } });
+    return res(200, "<html>x profilePage_76199453722 y</html>");
+  });
+  let blockErr = null;
+  const blocked = await MS3.instagram
+    .scrape({ username: "bravozaxaroplasteio", maxPosts: 0 }, () => {}, () => false)
+    .catch((e) => {
+      blockErr = e;
+      return null;
+    });
+  assert(blockErr === null, "an HTML soft-block does not blow up the scrape");
+  assert(blocked && blocked.posts.length === 1, "posts collected before the soft-block are kept");
+  assert(!/Unexpected token|not valid JSON/i.test(String(blocked && blocked.warning)), "the raw JSON parse error never reaches the user");
+  assert(/rate-limiting/i.test(String(blocked && blocked.warning)), "an HTML block is reported as the throttle it is");
+  const softBlockRetries = calls3.filter((u) => u.includes("max_id=page2")).length;
+  assert(softBlockRetries > 1, "the soft-block is retried like a 429 (was " + softBlockRetries + " attempt)");
+
+  // --- Scenario 4: the login wall ---
+  const LOGIN_PAGE = '<!DOCTYPE html><html><body><form id="loginForm" action="/accounts/login/"></form></body></html>';
+  const calls4 = [];
+  const MS4 = loadAdapter((url) => {
+    calls4.push(String(url));
+    return res(200, LOGIN_PAGE);
+  });
+  let loginErr = null;
+  await MS4.instagram
+    .scrape({ username: "bravozaxaroplasteio", maxPosts: 0 }, () => {}, () => false)
+    .catch((e) => (loginErr = e));
+  assert(loginErr && /signed in/i.test(loginErr.message), "a login page is explained, not dumped as a parse error");
+  assert(calls4.length <= 2, "a login wall aborts instead of retrying the fallback chain (was " + calls4.length + " calls)");
+
+  // --- Scenario 5: the security checkpoint ---
+  const MS5 = loadAdapter(() => res(200, '<!DOCTYPE html><html><body>window.location="/challenge/"</body></html>'));
+  let challengeErr = null;
+  await MS5.instagram
+    .scrape({ username: "bravozaxaroplasteio", maxPosts: 0 }, () => {}, () => false)
+    .catch((e) => (challengeErr = e));
+  assert(challengeErr && /checkpoint/i.test(challengeErr.message), "a checkpoint page tells the user to clear the prompt");
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
