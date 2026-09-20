@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-21
+
+### Fixed
+- **`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`** ([`extension/platforms/instagram.js`](file:///d:/dev/Multiscraper/extension/platforms/instagram.js)): Instagram answers `200` with an HTML page — not JSON — when it soft-blocks a session, shows the login wall, or has a pending security checkpoint. `res.json()` turned that into a raw parser error. Responses are now read as text and classified:
+  - **soft block** → treated as the throttle it is (backoff, cooldown, retry), and any posts already collected are still exported;
+  - **login page** → "open instagram.com, make sure you're still signed in";
+  - **checkpoint / challenge** → "confirm it's you on instagram.com, then try again".
+- A login wall or checkpoint now aborts immediately instead of dragging the whole lookup fallback chain through the same wall.
+
 ## [0.3.1] - 2026-09-21
 
 ### Added

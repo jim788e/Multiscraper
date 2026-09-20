@@ -109,6 +109,7 @@ interface ScrapeResult {
   - `csrfToken()`: Reads `csrftoken` from `document.cookie`.
   - `getJSON(url, opts)`: Makes authenticated requests with exponential backoff on `429` / `500+` and immediate abort on `401` / `403`. Honours the `Retry-After` header, records a session-wide cooldown every other request waits out, and accepts `opts.maxRetries` so calls that have a working fallback do not burn the full ladder.
   - `resolveUser(username)`: Retrieves profile metadata and user ID via `/api/v1/users/web_profile_info/?username=...`, falling back to `/api/v1/web/search/topsearch/` and the profile page HTML. While rate-limited the HTML lookup is tried first, since it is not an `/api/` call and is usually still served.
+  - `htmlBlockKind(text)`: Classifies an HTML body served in place of JSON as `challenge`, `login`, or `block` (the throttling interstitial), so a soft block is retried and an auth wall is explained rather than surfacing as a JSON parse error.
   - `report(status)`: Per-scrape hook that pushes human-readable waiting states (rate-limit countdown, lookup retry) into the popup progress message.
   - `feedPage(userId, maxId)`: Retrieves feed increments from `/api/v1/feed/user/{userId}/?count=12`.
   - `normalize(item)`: Extracts highest-resolution media candidates, carousel slides, captions, and hidden likes/comments counts.

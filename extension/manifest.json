@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Multiscraper — IG/TikTok/Google Exporter",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Export all posts from an Instagram or TikTok profile you can view, or the info and reviews of a Google business, and download the media.",
   "permissions": ["downloads", "storage", "scripting", "activeTab", "declarativeNetRequest"],
   "host_permissions": [

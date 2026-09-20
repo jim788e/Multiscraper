@@ -86,6 +86,26 @@
     if (left > 0) await waitWithStatus(left, "Instagram is rate-limiting");
   }
 
+  // Instagram answers 200 with an HTML page instead of JSON in three cases: the
+  // logged-out login wall, a pending security checkpoint, and the "soft block"
+  // it serves to a session it is throttling. Parsing that as JSON is what
+  // produced the raw `Unexpected token '<'` users saw.
+  function htmlBlockKind(text) {
+    if (/\/challenge\/|checkpoint_required|\bchallenge_required\b/i.test(text)) return "challenge";
+    if (/accounts\/login|LoginAndSignupPage|loginForm|"is_logged_in"\s*:\s*false/i.test(text)) return "login";
+    return "block";
+  }
+
+  function authBlockError(kind) {
+    const e = new Error(
+      kind === "challenge"
+        ? "Instagram wants you to confirm it's you (security checkpoint). Open instagram.com, clear the prompt, then try again."
+        : "Instagram served its login page instead of data — open instagram.com, make sure you're still signed in, then try again."
+    );
+    e.authBlocked = true;
+    return e;
+  }
+
   function rateLimitError() {
     const e = new Error(
       "Instagram is rate-limiting this browser (HTTP 429). Wait a few minutes, close other Instagram tabs, then resume."
@@ -145,7 +165,23 @@
         } catch (_) {}
         throw new Error("Instagram request failed: HTTP " + res.status + detail);
       }
-      return res.json();
+      // Read as text and parse ourselves: a 200 carrying HTML is a block, not
+      // a payload, and must not surface as a JSON syntax error.
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+        const kind = htmlBlockKind(text);
+        if (kind !== "block") throw authBlockError(kind);
+        // The soft-block interstitial: same shape as a 429, so treat it as one.
+        const wait = backoff(attempt, true);
+        noteRateLimit(wait);
+        if (attempt < maxRetries) {
+          await awaitCooldown();
+          continue;
+        }
+        throw rateLimitError();
+      }
     }
   }
 
@@ -201,6 +237,7 @@
       return await resolveUserProfileInfo(username);
     } catch (e) {
       if (e.stopped) throw e; // Stop pressed during a wait — don't start over
+      if (e.authBlocked) throw e; // No fallback can fix a login wall or checkpoint
       primaryErr = e;
     }
     // When we are throttled the search API will just hand us another 429, so try
@@ -215,7 +252,7 @@
       try {
         user = await fn(username);
       } catch (e) {
-        if (e.stopped) throw e;
+        if (e.stopped || e.authBlocked) throw e;
       }
     }
     if (!user) throw primaryErr;
