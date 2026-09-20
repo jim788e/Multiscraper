@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-21
+
+Version bump only — no code changes since 0.3.3. The minor bump marks the
+Instagram rewrite in 0.3.3 as the new baseline: it changed how the extension
+works from the user's point of view (the profile tab must be open and is
+auto-scrolled, rather than posts being fetched silently in the background),
+which is more than a patch-level change. Confirmed working against a live
+profile before tagging.
+
 ## [0.3.3] - 2026-09-21
 
 ### Changed
